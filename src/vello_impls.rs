@@ -46,6 +46,19 @@ impl From<Size> for kurbo::Vec2 {
 impl Renderer for vello::Scene {
     type Error = std::convert::Infallible;
 
+    fn push_clip_rect(&mut self, position: Position, size: Size) -> Result<(), Self::Error> {
+        let rect = Rect::from_origin_size(position, size);
+        self.push_clip_layer(Affine::IDENTITY, &rect);
+
+        Ok(())
+    }
+
+    fn pop_clip_rect(&mut self) -> Result<(), Self::Error> {
+        self.pop_layer();
+
+        Ok(())
+    }
+
     fn draw_rect(
         &mut self,
         position: Position,

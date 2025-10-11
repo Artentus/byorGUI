@@ -92,10 +92,35 @@ impl ComputedStyle {
     }
 }
 
+impl Node {
+    #[inline]
+    fn scroll_along_axis(&self, axis: Axis) -> Option<Pixel> {
+        match axis {
+            Axis::X => self.horizontal_scroll,
+            Axis::Y => self.vertical_scroll,
+        }
+    }
+}
+
+fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Brush>) {
+    use parley::AlignmentOptions as TextAlignmentOptions;
+
+    let horizontal_padding = node.style.padding.left + node.style.padding.right;
+    let wrap_width = node.size.width - horizontal_padding;
+
+    text_layout.break_all_lines(node.style.allow_text_wrap.then_some(wrap_width));
+    text_layout.align(
+        Some(wrap_width),
+        node.style.horizontal_text_alignment,
+        TextAlignmentOptions {
+            align_when_overflowing: true,
+        },
+    );
+}
+
 impl ByorGui {
     // must be bottom up recursive
     fn compute_node_size(&mut self, node_id: NodeId, axis: Axis) {
-        use parley::AlignmentOptions as TextAlignmentOptions;
         use parley::ContentWidths as TextMeasurements;
 
         // we have to use index-based iteration because of borrowing
@@ -120,15 +145,7 @@ impl ByorGui {
                 && (axis == Axis::Y)
             {
                 let text_layout = &mut self.text_layouts[text_layout_id];
-
-                text_layout.break_all_lines(Some(node.size.width));
-                text_layout.align(
-                    Some(node.size.width),
-                    node.style.horizontal_text_alignment,
-                    TextAlignmentOptions {
-                        align_when_overflowing: true,
-                    },
-                );
+                wrap_text(node, text_layout);
             }
 
             return;
@@ -137,6 +154,12 @@ impl ByorGui {
         // text sizing
         if let Some(&text_layout_id) = node.text_layout.as_ref() {
             let text_layout = &mut self.text_layouts[text_layout_id];
+            let padding: Pixel = node
+                .style
+                .padding
+                .along_axis(axis)
+                .into_iter()
+                .sum::<Pixel>();
 
             match axis {
                 Axis::X => {
@@ -145,8 +168,10 @@ impl ByorGui {
                         max: preferred_width,
                     } = text_layout.calculate_content_widths();
 
-                    let min_width = min_width.ceil().clamp(min_size, max_size);
-                    let width = preferred_width.ceil().clamp(min_width, max_size);
+                    let min_width = (min_width + padding).ceil().clamp(min_size, max_size);
+                    let width = (preferred_width + padding)
+                        .ceil()
+                        .clamp(min_width, max_size);
 
                     node.min_size.width = if node.style.allow_text_wrap {
                         min_width
@@ -156,17 +181,11 @@ impl ByorGui {
                     node.size.width = width;
                 }
                 Axis::Y => {
-                    let wrap_width = node.style.allow_text_wrap.then_some(node.size.width);
-                    text_layout.break_all_lines(wrap_width);
-                    text_layout.align(
-                        Some(node.size.width),
-                        node.style.horizontal_text_alignment,
-                        TextAlignmentOptions {
-                            align_when_overflowing: true,
-                        },
-                    );
+                    wrap_text(node, text_layout);
 
-                    let height = text_layout.height().ceil().clamp(min_size, max_size);
+                    let height = (text_layout.height() + padding)
+                        .ceil()
+                        .clamp(min_size, max_size);
                     node.min_size.height = height;
                     node.size.height = height;
                 }
@@ -214,7 +233,11 @@ impl ByorGui {
             let fit_size = fit_size.clamp(min_size, max_size);
 
             let node = &mut self.nodes[node_id];
-            *node.min_size.along_axis_mut(axis) = min_fit_size;
+            *node.min_size.along_axis_mut(axis) = if node.scroll_along_axis(axis).is_some() {
+                min_size
+            } else {
+                min_fit_size
+            };
             *node.size.along_axis_mut(axis) = fit_size;
             if !matches!(node.style.size_along_axis(axis), Sizing::Grow) {
                 *node.max_size.along_axis_mut(axis) = fit_size;
@@ -234,52 +257,63 @@ impl ByorGui {
                 (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
 
             let mut total_target_size = parent_size - parent_padding - total_spacing;
+
+            let mut available_space = total_target_size;
             let mut nodes_to_resize = NodeIdVec::new();
             let mut flex_ratio_sum = 0.0;
             for (node_id, node) in self.iter_children(parent_id) {
+                available_space -= node.size.along_axis(axis);
+
                 if node.min_size != node.max_size {
                     nodes_to_resize.push(node_id);
                     flex_ratio_sum += node.style.flex_ratio;
                 }
             }
 
-            loop {
-                let mut collection_changed = false;
-                nodes_to_resize.retain(|&mut node_id| {
-                    let node = &mut self.nodes[node_id];
+            'grow_or_shrink: {
+                // if the parent supports scrolling, do not shrink nodes
+                if parent.scroll_along_axis(axis).is_some() && (available_space <= 0.0) {
+                    break 'grow_or_shrink;
+                }
 
-                    let min_size = node.min_size.along_axis(axis);
-                    let max_size = node.max_size.along_axis(axis);
+                loop {
+                    let mut collection_changed = false;
+                    nodes_to_resize.retain(|&mut node_id| {
+                        let node = &mut self.nodes[node_id];
+
+                        let min_size = node.min_size.along_axis(axis);
+                        let max_size = node.max_size.along_axis(axis);
+
+                        let flex_ratio = node.style.flex_ratio;
+                        let flex_factor = flex_ratio / flex_ratio_sum;
+                        let target_size = total_target_size * flex_factor;
+
+                        if (target_size <= min_size) || (target_size >= max_size) {
+                            let new_size = target_size.clamp(min_size, max_size);
+                            *node.size.along_axis_mut(axis) = new_size;
+
+                            total_target_size -= new_size;
+                            flex_ratio_sum -= flex_ratio;
+                            collection_changed = true;
+                            false
+                        } else {
+                            true
+                        }
+                    });
+
+                    if !collection_changed {
+                        break;
+                    }
+                }
+
+                for node_id in nodes_to_resize.drain(..) {
+                    let node = &mut self.nodes[node_id];
 
                     let flex_ratio = node.style.flex_ratio;
                     let flex_factor = flex_ratio / flex_ratio_sum;
                     let target_size = total_target_size * flex_factor;
-
-                    if (target_size <= min_size) || (target_size >= max_size) {
-                        let new_size = target_size.clamp(min_size, max_size);
-                        *node.size.along_axis_mut(axis) = new_size;
-
-                        total_target_size -= new_size;
-                        flex_ratio_sum -= flex_ratio;
-                        collection_changed = true;
-                        false
-                    } else {
-                        true
-                    }
-                });
-
-                if !collection_changed {
-                    break;
+                    *node.size.along_axis_mut(axis) = target_size;
                 }
-            }
-
-            for node_id in nodes_to_resize.drain(..) {
-                let node = &mut self.nodes[node_id];
-
-                let flex_ratio = node.style.flex_ratio;
-                let flex_factor = flex_ratio / flex_ratio_sum;
-                let target_size = total_target_size * flex_factor;
-                *node.size.along_axis_mut(axis) = target_size;
             }
         } else {
             let available_space = parent_size - parent_padding;
@@ -310,8 +344,19 @@ impl ByorGui {
 
             parent.vertical_text_offset = match parent.style.vertical_text_alignment {
                 VerticalTextAlignment::Top => 0.0,
-                VerticalTextAlignment::Center => (parent.size.height - text_layout.height()) / 2.0,
-                VerticalTextAlignment::Bottom => parent.size.height - text_layout.height(),
+                VerticalTextAlignment::Center => {
+                    (parent.size.height
+                        - text_layout.height()
+                        - parent.style.padding.top
+                        - parent.style.padding.bottom)
+                        / 2.0
+                }
+                VerticalTextAlignment::Bottom => {
+                    parent.size.height
+                        - text_layout.height()
+                        - parent.style.padding.top
+                        - parent.style.padding.bottom
+                }
             };
         }
 
@@ -323,12 +368,14 @@ impl ByorGui {
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
             let parent_padding = parent.style.padding.along_axis(axis);
+            let parent_scroll = parent.scroll_along_axis(axis).unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);
 
             let mut offset = 0.0;
             while let Some(node) = nodes.next() {
-                *node.position.along_axis_mut(axis) = parent_position + parent_padding[0] + offset;
+                *node.position.along_axis_mut(axis) =
+                    parent_position + parent_padding[0] + offset - parent_scroll;
 
                 offset += node.size.along_axis(axis);
                 offset += parent_child_spacing;
@@ -345,7 +392,7 @@ impl ByorGui {
 
             nodes.reset();
             while let Some(node) = nodes.next() {
-                *node.position.along_axis_mut(axis) += alignment_offset;
+                *node.position.along_axis_mut(axis) += alignment_offset.max(0.0);
             }
         }
 
@@ -357,6 +404,7 @@ impl ByorGui {
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
             let parent_padding = parent.style.padding.along_axis(axis);
+            let parent_scroll = parent.scroll_along_axis(axis).unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);
 
@@ -371,7 +419,7 @@ impl ByorGui {
                             - node.size.along_axis(axis)
                             - parent_padding[1]
                     }
-                };
+                } - parent_scroll;
             }
         }
 

@@ -252,13 +252,14 @@ fn gui(gui: &mut ByorGui) {
             flex_ratio: Some(2.0),
             child_alignment: Property::Override(Alignment::End),
             cross_axis_alignment: Property::Override(Alignment::Center),
+            allow_horizontal_scoll: true,
             ..Default::default()
         },
         |gui| {
             gui.insert_container_node(
                 None,
                 &Style {
-                    width: Sizing::Fixed(100.0),
+                    width: Sizing::Fixed(200.0),
                     height: Sizing::Fixed(100.0),
                     ..Default::default()
                 },

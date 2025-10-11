@@ -5,6 +5,10 @@ pub use parley::GlyphRun;
 pub trait Renderer {
     type Error;
 
+    fn push_clip_rect(&mut self, position: Position, size: Size) -> Result<(), Self::Error>;
+
+    fn pop_clip_rect(&mut self) -> Result<(), Self::Error>;
+
     fn draw_rect(
         &mut self,
         position: Position,
@@ -51,6 +55,16 @@ impl ByorGui {
             Brush::Solid(LAYER_COLORS[depth]),
         )?;
 
+        let clip_position = Position {
+            x: node.position.x + node.style.padding.left,
+            y: node.position.y + node.style.padding.top,
+        };
+        let clip_size = Size {
+            width: node.size.width - node.style.padding.left - node.style.padding.right,
+            height: node.size.height - node.style.padding.top - node.style.padding.bottom,
+        };
+        renderer.push_clip_rect(clip_position, clip_size)?;
+
         if let Some(&text_layout_id) = node.text_layout.as_ref() {
             let text_layout = &self.text_layouts[text_layout_id];
 
@@ -58,8 +72,12 @@ impl ByorGui {
                 for item in line.items() {
                     match item {
                         parley::PositionedLayoutItem::GlyphRun(text) => {
-                            let mut text_position = node.position;
-                            text_position.y += node.vertical_text_offset;
+                            let text_position = Position {
+                                x: node.position.x + node.style.padding.left,
+                                y: node.position.y
+                                    + node.style.padding.top
+                                    + node.vertical_text_offset,
+                            };
                             renderer.draw_text(text, text_position)?
                         }
                         parley::PositionedLayoutItem::InlineBox(_) => {
@@ -74,6 +92,7 @@ impl ByorGui {
             self.draw_node(child_id, depth + 1, renderer)?;
         }
 
+        renderer.pop_clip_rect()?;
         Ok(())
     }
 

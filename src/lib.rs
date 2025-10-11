@@ -266,6 +266,8 @@ pub struct Style {
     pub max_width: Option<Pixel>,
     pub max_height: Option<Pixel>,
     pub flex_ratio: Option<f32>,
+    pub allow_horizontal_scoll: bool,
+    pub allow_vertical_scoll: bool,
 
     // inherited properties
     pub padding: Property<Padding>,
@@ -452,6 +454,8 @@ struct Node {
     size: Size,
     position: Position,
     vertical_text_offset: Pixel,
+    horizontal_scroll: Option<Pixel>,
+    vertical_scroll: Option<Pixel>,
 }
 
 impl Node {
@@ -467,6 +471,8 @@ impl Node {
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
+            horizontal_scroll: None,
+            vertical_scroll: None,
         }
     }
 
@@ -479,6 +485,8 @@ impl Node {
             width: style.max_width.unwrap_or(Pixel::MAX),
             height: style.max_height.unwrap_or(Pixel::MAX),
         };
+        let horizontal_scroll = style.allow_horizontal_scoll.then_some(0.0);
+        let vertical_scroll = style.allow_vertical_scoll.then_some(0.0);
         let style = compute_style(style, parent_style);
 
         Self {
@@ -490,6 +498,8 @@ impl Node {
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
+            horizontal_scroll,
+            vertical_scroll,
         }
     }
 }

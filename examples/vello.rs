@@ -1,5 +1,6 @@
 use anyhow::{Result, format_err};
 use byor_gui::*;
+use color::AlphaColor;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{Renderer, RendererOptions, Scene};
@@ -36,6 +37,7 @@ impl ExampleApp {
         let mut gui = ByorGui::default();
         gui.root_style_mut().padding = 5.0.into();
         gui.root_style_mut().child_spacing = 5.0.into();
+        gui.root_style_mut().foreground = Brush::Solid(AlphaColor::BLACK);
 
         Self {
             context: RenderContext::new(),
@@ -303,15 +305,16 @@ fn gui(gui: &mut ByorGui) {
                         |_| (),
                     );
 
-                    gui.insert_container_node(
+                    gui.insert_text_node(
                         None,
                         &Style {
                             width: Sizing::Grow,
                             height: Sizing::Fixed(100.0),
                             cross_axis_alignment: Property::Override(Alignment::Center),
+                            text_alignment: Property::Override(TextAlignment::Center),
                             ..Default::default()
                         },
-                        |_| (),
+                        "lorem ipsum dolor sit amet",
                     );
                 },
             );

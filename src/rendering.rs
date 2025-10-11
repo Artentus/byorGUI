@@ -1,5 +1,7 @@
 use super::*;
 
+pub use parley::GlyphRun;
+
 pub trait Renderer {
     type Error;
 
@@ -18,6 +20,12 @@ pub trait Renderer {
         size: Size,
         corner_radius: f32,
         brush: Brush,
+    ) -> Result<(), Self::Error>;
+
+    fn draw_text(
+        &mut self,
+        text: GlyphRun<'_, Brush>,
+        position: Position,
     ) -> Result<(), Self::Error>;
 }
 
@@ -42,6 +50,21 @@ impl ByorGui {
             5.0,
             Brush::Solid(LAYER_COLORS[depth]),
         )?;
+
+        if let Some(text_layout) = node.text_layout.as_ref() {
+            for line in text_layout.lines() {
+                for item in line.items() {
+                    match item {
+                        parley::PositionedLayoutItem::GlyphRun(text) => {
+                            renderer.draw_text(text, node.position)?
+                        }
+                        parley::PositionedLayoutItem::InlineBox(_) => {
+                            unreachable!("inline boxes are not generated")
+                        }
+                    }
+                }
+            }
+        }
 
         for &child_id in self.children.get(node_id).into_iter().flatten() {
             self.draw_node(child_id, depth + 1, renderer)?;

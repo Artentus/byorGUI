@@ -74,22 +74,12 @@ impl ComputedStyle {
     }
 }
 
-struct TextMeasurements {
-    min_width: Pixel,
-    preferred_width: Pixel,
-}
-
-fn measure_text_width(text: &str) -> TextMeasurements {
-    todo!()
-}
-
-fn measure_text_height(text: &str, width: Pixel) -> Pixel {
-    todo!()
-}
-
 impl ByorGui {
     // must be bottom up recursive
     fn compute_node_size(&mut self, node_id: NodeId, axis: Axis) {
+        use parley::AlignmentOptions as TextAlignmentOptions;
+        use parley::ContentWidths as TextMeasurements;
+
         // we have to use index-based iteration because of borrowing
         let child_count = self.child_count(node_id);
         for child_index in 0..child_count {
@@ -107,26 +97,54 @@ impl ByorGui {
             *node.min_size.along_axis_mut(axis) = size;
             *node.max_size.along_axis_mut(axis) = size;
             *node.size.along_axis_mut(axis) = size;
+
+            if let Some(text_layout) = node.text_layout.as_mut()
+                && (axis == Axis::Y)
+            {
+                text_layout.break_all_lines(Some(node.size.width));
+                text_layout.align(
+                    Some(node.size.width),
+                    node.style.text_alignment,
+                    TextAlignmentOptions {
+                        align_when_overflowing: true,
+                    },
+                );
+            }
+
             return;
         }
 
         // text sizing
-        if let Some(text) = node.text.as_deref() {
+        if let Some(text_layout) = node.text_layout.as_mut() {
             match axis {
                 Axis::X => {
                     let TextMeasurements {
-                        min_width,
-                        preferred_width,
-                    } = measure_text_width(text);
+                        min: min_width,
+                        max: preferred_width,
+                    } = text_layout.calculate_content_widths();
 
-                    let min_width = min_width.clamp(min_size, max_size);
-                    let width = preferred_width.clamp(min_width, max_size);
-                    node.min_size.width = min_width;
+                    let min_width = min_width.ceil().clamp(min_size, max_size);
+                    let width = preferred_width.ceil().clamp(min_width, max_size);
+
+                    node.min_size.width = if node.style.allow_text_wrap {
+                        min_width
+                    } else {
+                        width
+                    };
                     node.size.width = width;
                 }
                 Axis::Y => {
-                    let height =
-                        measure_text_height(text, node.size.width).clamp(min_size, max_size);
+                    let wrap_width = node.style.allow_text_wrap.then_some(node.size.width);
+                    text_layout.break_all_lines(wrap_width);
+                    text_layout.align(
+                        Some(node.size.width),
+                        node.style.text_alignment,
+                        TextAlignmentOptions {
+                            align_when_overflowing: true,
+                        },
+                    );
+
+                    let height = text_layout.height().ceil().clamp(min_size, max_size);
                     node.min_size.height = height;
                     node.size.height = height;
                 }
@@ -217,6 +235,7 @@ impl ByorGui {
                     let target_size = total_target_size * flex_factor;
 
                     if (target_size <= min_size) || (target_size >= max_size) {
+                        // TODO: adjust the node the min/max size
                         total_target_size -= size;
                         flex_ratio_sum -= flex_ratio;
                         collection_changed = true;
@@ -290,15 +309,15 @@ impl ByorGui {
                 *node.position.along_axis_mut(axis) += alignment_offset;
             }
         } else {
-            while let Some(child) = nodes.next() {
-                *child.position.along_axis_mut(axis) = match child.style.cross_axis_alignment {
+            while let Some(node) = nodes.next() {
+                *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment {
                     Alignment::Start => parent_position + parent_padding[0],
                     Alignment::Center => {
-                        parent_position + (parent_size - child.size.along_axis(axis)) / 2.0
+                        parent_position + (parent_size - node.size.along_axis(axis)) / 2.0
                     }
                     Alignment::End => {
                         parent_position + parent_size
-                            - child.size.along_axis(axis)
+                            - node.size.along_axis(axis)
                             - parent_padding[1]
                     }
                 };

@@ -1,13 +1,17 @@
-#![feature(trait_alias)]
-
 mod layout;
 pub mod rendering;
 
 use color::{AlphaColor, Srgb};
 use intmap::{IntKey, IntMap};
+use parley::FontContext;
+use parley::LayoutContext as TextLayoutContext;
+use parley::layout::Layout as TextLayout;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 use std::ops::Deref;
+
+pub use parley::Alignment as TextAlignment;
+pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
 
 pub type Pixel = f32;
 
@@ -161,8 +165,9 @@ pub enum Alignment {
     End,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum Brush {
+    #[default]
     None,
     Solid(AlphaColor<Srgb>),
 }
@@ -190,9 +195,17 @@ impl<T> Default for Property<T> {
 
 impl<T> Property<T> {
     #[inline]
-    pub fn unwrap_or(self, value: T) -> T {
+    pub fn unwrap_or(self, default: T) -> T {
         match self {
-            Self::Inherit => value,
+            Self::Inherit => default,
+            Self::Override(value) => value,
+        }
+    }
+
+    #[inline]
+    pub fn unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
+        match self {
+            Self::Inherit => f(),
             Self::Override(value) => value,
         }
     }
@@ -237,6 +250,7 @@ impl<T> From<Option<T>> for Property<T> {
 
 #[derive(Debug, Default, Clone)]
 pub struct Style {
+    // non-inherited properties
     pub width: Sizing,
     pub height: Sizing,
     pub min_width: Option<Pixel>,
@@ -245,6 +259,7 @@ pub struct Style {
     pub max_height: Option<Pixel>,
     pub flex_ratio: Option<f32>,
 
+    // inherited properties
     pub padding: Property<Padding>,
     pub child_spacing: Property<Pixel>,
     pub layout_direction: Property<Direction>,
@@ -252,7 +267,14 @@ pub struct Style {
     pub cross_axis_alignment: Property<Alignment>,
     pub background: Property<Brush>,
     pub foreground: Property<Brush>,
+    pub font: Property<FontStack<'static>>,
     pub font_size: Property<Pixel>,
+    pub font_weight: Property<FontWeight>,
+    pub font_width: Property<FontWidth>,
+    pub text_underline: Property<bool>,
+    pub text_strikethrough: Property<bool>,
+    pub allow_text_wrap: Property<bool>,
+    pub text_alignment: Property<TextAlignment>,
 }
 
 #[derive(Debug, Clone)]
@@ -264,7 +286,14 @@ pub struct RootStyle {
     pub cross_axis_alignment: Alignment,
     pub background: Brush,
     pub foreground: Brush,
+    pub font: FontStack<'static>,
     pub font_size: Pixel,
+    pub font_weight: FontWeight,
+    pub font_width: FontWidth,
+    pub text_underline: bool,
+    pub text_strikethrough: bool,
+    pub allow_text_wrap: bool,
+    pub text_alignment: TextAlignment,
 }
 
 impl Default for RootStyle {
@@ -277,7 +306,14 @@ impl Default for RootStyle {
             cross_axis_alignment: Alignment::default(),
             background: Brush::Solid(AlphaColor::BLACK),
             foreground: Brush::Solid(AlphaColor::WHITE),
+            font: FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
             font_size: 16.0,
+            font_weight: FontWeight::NORMAL,
+            font_width: FontWidth::NORMAL,
+            text_underline: false,
+            text_strikethrough: false,
+            allow_text_wrap: true,
+            text_alignment: TextAlignment::default(),
         }
     }
 }
@@ -295,7 +331,14 @@ struct ComputedStyle {
     cross_axis_alignment: Alignment,
     background: Brush,
     foreground: Brush,
+    font: FontStack<'static>,
     font_size: Pixel,
+    font_weight: FontWeight,
+    font_width: FontWidth,
+    text_underline: bool,
+    text_strikethrough: bool,
+    allow_text_wrap: bool,
+    text_alignment: TextAlignment,
 }
 
 impl ComputedStyle {
@@ -312,7 +355,14 @@ impl ComputedStyle {
             cross_axis_alignment: style.cross_axis_alignment,
             background: style.background.clone(),
             foreground: style.foreground.clone(),
+            font: style.font.clone(),
             font_size: style.font_size,
+            font_weight: style.font_weight,
+            font_width: style.font_width,
+            text_underline: style.text_underline,
+            text_strikethrough: style.text_strikethrough,
+            allow_text_wrap: style.allow_text_wrap,
+            text_alignment: style.text_alignment,
         }
     }
 }
@@ -330,9 +380,22 @@ fn compute_style(style: &Style, base: &ComputedStyle) -> ComputedStyle {
         cross_axis_alignment: style
             .cross_axis_alignment
             .unwrap_or(base.cross_axis_alignment),
-        background: style.background.clone().unwrap_or(base.background.clone()),
-        foreground: style.foreground.clone().unwrap_or(base.foreground.clone()),
+        background: style
+            .background
+            .clone()
+            .unwrap_or_else(|| base.background.clone()),
+        foreground: style
+            .foreground
+            .clone()
+            .unwrap_or_else(|| base.foreground.clone()),
+        font: style.font.clone().unwrap_or_else(|| base.font.clone()),
         font_size: style.font_size.unwrap_or(base.font_size),
+        font_weight: style.font_weight.unwrap_or(base.font_weight),
+        font_width: style.font_width.unwrap_or(base.font_width),
+        text_underline: style.text_underline.unwrap_or(base.text_underline),
+        text_strikethrough: style.text_strikethrough.unwrap_or(base.text_strikethrough),
+        allow_text_wrap: style.allow_text_wrap.unwrap_or(base.allow_text_wrap),
+        text_alignment: style.text_alignment.unwrap_or(base.text_alignment),
     }
 }
 
@@ -361,7 +424,7 @@ slotmap::new_key_type! { struct NodeId; }
 struct Node {
     uid: Option<Uid>,
     style: ComputedStyle,
-    text: Option<String>,
+    text_layout: Option<TextLayout<Brush>>,
     min_size: Size,
     max_size: Size,
     size: Size,
@@ -375,7 +438,7 @@ impl Node {
         Node {
             uid: None,
             style,
-            text: None,
+            text_layout: None,
             min_size: screen_size,
             max_size: screen_size,
             size: Size::default(),
@@ -397,7 +460,7 @@ impl Node {
         Self {
             uid,
             style,
-            text: None,
+            text_layout: None,
             min_size,
             max_size,
             size: Size::default(),
@@ -420,9 +483,10 @@ pub struct ByorGui {
     prev_mouse_state: MouseState,
     mouse_state: MouseState,
     hovered_node_uid: Option<Uid>,
-}
 
-pub trait UiContents<R> = FnOnce(&mut ByorGui) -> R;
+    text_layout_context: TextLayoutContext<Brush>,
+    font_context: FontContext,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeResponse<R> {
@@ -552,7 +616,7 @@ impl ByorGui {
         &mut self,
         uid: Option<Uid>,
         style: &Style,
-        contents: impl UiContents<R>,
+        contents: impl FnOnce(&mut ByorGui) -> R,
     ) -> NodeResponse<R> {
         let node_id = self.insert_leaf_node(uid, style);
 
@@ -563,14 +627,36 @@ impl ByorGui {
         self.compute_node_response(uid, result)
     }
 
+    fn layout_text(&mut self, text: &str, node_id: NodeId) {
+        use parley::style::{LineHeight, OverflowWrap, StyleProperty};
+
+        let mut builder =
+            self.text_layout_context
+                .ranged_builder(&mut self.font_context, text, 1.0, true);
+
+        let style = &self.nodes[node_id].style;
+        builder.push_default(StyleProperty::Brush(style.foreground.clone()));
+        builder.push_default(StyleProperty::FontStack(style.font.clone()));
+        builder.push_default(StyleProperty::FontSize(style.font_size));
+        builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
+        builder.push_default(StyleProperty::FontWeight(style.font_weight));
+        builder.push_default(StyleProperty::FontWidth(style.font_width));
+        builder.push_default(StyleProperty::Underline(style.text_underline));
+        builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));
+        builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
+
+        let text_layout = builder.build(text);
+        self.nodes[node_id].text_layout = Some(text_layout);
+    }
+
     pub fn insert_text_node(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
-        text: String,
+        text: &str,
     ) -> NodeResponse<()> {
         let node_id = self.insert_leaf_node(uid, style);
-        self.nodes[node_id].text = Some(text);
+        self.layout_text(text, node_id);
 
         self.compute_node_response(uid, ())
     }

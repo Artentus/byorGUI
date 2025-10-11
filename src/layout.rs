@@ -246,19 +246,20 @@ impl ByorGui {
             loop {
                 let mut collection_changed = false;
                 nodes_to_resize.retain(|&mut node_id| {
-                    let node = &self.nodes[node_id];
+                    let node = &mut self.nodes[node_id];
 
                     let min_size = node.min_size.along_axis(axis);
                     let max_size = node.max_size.along_axis(axis);
-                    let size = node.size.along_axis(axis);
 
                     let flex_ratio = node.style.flex_ratio;
                     let flex_factor = flex_ratio / flex_ratio_sum;
                     let target_size = total_target_size * flex_factor;
 
                     if (target_size <= min_size) || (target_size >= max_size) {
-                        // TODO: adjust the node the min/max size
-                        total_target_size -= size;
+                        let new_size = target_size.clamp(min_size, max_size);
+                        *node.size.along_axis_mut(axis) = new_size;
+
+                        total_target_size -= new_size;
                         flex_ratio_sum -= flex_ratio;
                         collection_changed = true;
                         false

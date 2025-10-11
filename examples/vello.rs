@@ -248,6 +248,7 @@ fn gui(gui: &mut ByorGui) {
         &Style {
             width: Sizing::Grow,
             height: Sizing::FitContent,
+            max_width: Some(600.0),
             flex_ratio: Some(2.0),
             child_alignment: Property::Override(Alignment::End),
             cross_axis_alignment: Property::Override(Alignment::Center),

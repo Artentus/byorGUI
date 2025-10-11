@@ -311,7 +311,12 @@ fn gui(gui: &mut ByorGui) {
                             width: Sizing::Grow,
                             height: Sizing::Fixed(100.0),
                             cross_axis_alignment: Property::Override(Alignment::Center),
-                            text_alignment: Property::Override(TextAlignment::Center),
+                            horizontal_text_alignment: Property::Override(
+                                HorizontalTextAlignment::Center,
+                            ),
+                            vertical_text_alignment: Property::Override(
+                                VerticalTextAlignment::Center,
+                            ),
                             ..Default::default()
                         },
                         "lorem ipsum dolor sit amet",

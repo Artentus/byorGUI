@@ -98,13 +98,15 @@ impl ByorGui {
             *node.max_size.along_axis_mut(axis) = size;
             *node.size.along_axis_mut(axis) = size;
 
-            if let Some(text_layout) = node.text_layout.as_mut()
+            if let Some(&text_layout_id) = node.text_layout.as_ref()
                 && (axis == Axis::Y)
             {
+                let text_layout = &mut self.text_layouts[text_layout_id];
+
                 text_layout.break_all_lines(Some(node.size.width));
                 text_layout.align(
                     Some(node.size.width),
-                    node.style.text_alignment,
+                    node.style.horizontal_text_alignment,
                     TextAlignmentOptions {
                         align_when_overflowing: true,
                     },
@@ -115,7 +117,9 @@ impl ByorGui {
         }
 
         // text sizing
-        if let Some(text_layout) = node.text_layout.as_mut() {
+        if let Some(&text_layout_id) = node.text_layout.as_ref() {
+            let text_layout = &mut self.text_layouts[text_layout_id];
+
             match axis {
                 Axis::X => {
                     let TextMeasurements {
@@ -138,7 +142,7 @@ impl ByorGui {
                     text_layout.break_all_lines(wrap_width);
                     text_layout.align(
                         Some(node.size.width),
-                        node.style.text_alignment,
+                        node.style.horizontal_text_alignment,
                         TextAlignmentOptions {
                             align_when_overflowing: true,
                         },
@@ -277,13 +281,25 @@ impl ByorGui {
     }
 
     fn position_children(&mut self, parent_id: NodeId, axis: Axis) {
-        let parent = &self.nodes[parent_id];
+        let parent = &mut self.nodes[parent_id];
         let parent_position = parent.position.along_axis(axis);
         let parent_size = parent.size.along_axis(axis);
         let parent_padding = parent.style.padding.along_axis(axis);
         let parent_layout_direction = parent.style.layout_direction;
         let parent_child_spacing = parent.style.child_spacing;
         let parent_child_alignment = parent.style.child_alignment;
+
+        if let Some(&text_layout_id) = parent.text_layout.as_ref()
+            && (axis == Axis::Y)
+        {
+            let text_layout = &self.text_layouts[text_layout_id];
+
+            parent.vertical_text_offset = match parent.style.vertical_text_alignment {
+                VerticalTextAlignment::Top => 0.0,
+                VerticalTextAlignment::Center => (parent_size - text_layout.height()) / 2.0,
+                VerticalTextAlignment::Bottom => parent_size - text_layout.height(),
+            };
+        }
 
         let mut nodes = self.iter_children_mut(parent_id);
         if axis.is_primary(parent_layout_direction) {
@@ -335,7 +351,6 @@ impl ByorGui {
     pub(crate) fn layout(&mut self, root_id: NodeId) {
         self.compute_node_size(root_id, Axis::X);
         self.grow_or_shrink_children(root_id, Axis::X);
-        // TODO: text wrapping
         self.compute_node_size(root_id, Axis::Y);
         self.grow_or_shrink_children(root_id, Axis::Y);
         self.position_children(root_id, Axis::X);

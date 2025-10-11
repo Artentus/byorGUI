@@ -10,7 +10,7 @@ use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 use std::ops::Deref;
 
-pub use parley::Alignment as TextAlignment;
+pub use parley::Alignment as HorizontalTextAlignment;
 pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
 
 pub type Pixel = f32;
@@ -165,6 +165,14 @@ pub enum Alignment {
     End,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VerticalTextAlignment {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum Brush {
     #[default]
@@ -274,7 +282,8 @@ pub struct Style {
     pub text_underline: Property<bool>,
     pub text_strikethrough: Property<bool>,
     pub allow_text_wrap: Property<bool>,
-    pub text_alignment: Property<TextAlignment>,
+    pub horizontal_text_alignment: Property<HorizontalTextAlignment>,
+    pub vertical_text_alignment: Property<VerticalTextAlignment>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,7 +302,8 @@ pub struct RootStyle {
     pub text_underline: bool,
     pub text_strikethrough: bool,
     pub allow_text_wrap: bool,
-    pub text_alignment: TextAlignment,
+    pub horizontal_text_alignment: HorizontalTextAlignment,
+    pub vertical_text_alignment: VerticalTextAlignment,
 }
 
 impl Default for RootStyle {
@@ -313,7 +323,8 @@ impl Default for RootStyle {
             text_underline: false,
             text_strikethrough: false,
             allow_text_wrap: true,
-            text_alignment: TextAlignment::default(),
+            horizontal_text_alignment: HorizontalTextAlignment::default(),
+            vertical_text_alignment: VerticalTextAlignment::default(),
         }
     }
 }
@@ -338,7 +349,8 @@ struct ComputedStyle {
     text_underline: bool,
     text_strikethrough: bool,
     allow_text_wrap: bool,
-    text_alignment: TextAlignment,
+    horizontal_text_alignment: HorizontalTextAlignment,
+    vertical_text_alignment: VerticalTextAlignment,
 }
 
 impl ComputedStyle {
@@ -362,7 +374,8 @@ impl ComputedStyle {
             text_underline: style.text_underline,
             text_strikethrough: style.text_strikethrough,
             allow_text_wrap: style.allow_text_wrap,
-            text_alignment: style.text_alignment,
+            horizontal_text_alignment: style.horizontal_text_alignment,
+            vertical_text_alignment: style.vertical_text_alignment,
         }
     }
 }
@@ -395,7 +408,12 @@ fn compute_style(style: &Style, base: &ComputedStyle) -> ComputedStyle {
         text_underline: style.text_underline.unwrap_or(base.text_underline),
         text_strikethrough: style.text_strikethrough.unwrap_or(base.text_strikethrough),
         allow_text_wrap: style.allow_text_wrap.unwrap_or(base.allow_text_wrap),
-        text_alignment: style.text_alignment.unwrap_or(base.text_alignment),
+        horizontal_text_alignment: style
+            .horizontal_text_alignment
+            .unwrap_or(base.horizontal_text_alignment),
+        vertical_text_alignment: style
+            .vertical_text_alignment
+            .unwrap_or(base.vertical_text_alignment),
     }
 }
 
@@ -419,16 +437,21 @@ pub const fn uid(value: &[u8]) -> Uid {
     Uid(rapidhash::v3::rapidhash_v3(value))
 }
 
-slotmap::new_key_type! { struct NodeId; }
+slotmap::new_key_type! {
+    struct NodeId;
+
+    struct TextLayoutId;
+}
 
 struct Node {
     uid: Option<Uid>,
     style: ComputedStyle,
-    text_layout: Option<TextLayout<Brush>>,
+    text_layout: Option<TextLayoutId>,
     min_size: Size,
     max_size: Size,
     size: Size,
     position: Position,
+    vertical_text_offset: Pixel,
 }
 
 impl Node {
@@ -443,6 +466,7 @@ impl Node {
             max_size: screen_size,
             size: Size::default(),
             position: Position::default(),
+            vertical_text_offset: 0.0,
         }
     }
 
@@ -465,6 +489,7 @@ impl Node {
             max_size,
             size: Size::default(),
             position: Position::default(),
+            vertical_text_offset: 0.0,
         }
     }
 }
@@ -478,6 +503,7 @@ pub struct ByorGui {
     children: SecondaryMap<NodeId, NodeIdVec>,
     uid_map: IntMap<Uid, NodeId>,
     ancestor_stack: Vec<NodeId>,
+    text_layouts: SlotMap<TextLayoutId, TextLayout<Brush>>,
 
     root_style: RootStyle,
     prev_mouse_state: MouseState,
@@ -566,7 +592,9 @@ impl ByorGui {
     pub fn begin_frame(&mut self, screen_size: Size, mouse_state: MouseState) {
         self.nodes.clear();
         self.children.clear();
+        self.uid_map.clear();
         assert!(self.ancestor_stack.is_empty());
+        self.text_layouts.clear();
 
         let root = Node::new_root(self.root_style(), screen_size);
         let root_id = self.nodes.insert(root);
@@ -645,7 +673,7 @@ impl ByorGui {
         builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));
         builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
 
-        let text_layout = builder.build(text);
+        let text_layout = self.text_layouts.insert(builder.build(text));
         self.nodes[node_id].text_layout = Some(text_layout);
     }
 

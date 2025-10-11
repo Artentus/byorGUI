@@ -51,12 +51,16 @@ impl ByorGui {
             Brush::Solid(LAYER_COLORS[depth]),
         )?;
 
-        if let Some(text_layout) = node.text_layout.as_ref() {
+        if let Some(&text_layout_id) = node.text_layout.as_ref() {
+            let text_layout = &self.text_layouts[text_layout_id];
+
             for line in text_layout.lines() {
                 for item in line.items() {
                     match item {
                         parley::PositionedLayoutItem::GlyphRun(text) => {
-                            renderer.draw_text(text, node.position)?
+                            let mut text_position = node.position;
+                            text_position.y += node.vertical_text_offset;
+                            renderer.draw_text(text, text_position)?
                         }
                         parley::PositionedLayoutItem::InlineBox(_) => {
                             unreachable!("inline boxes are not generated")

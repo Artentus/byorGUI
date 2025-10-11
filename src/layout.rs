@@ -194,25 +194,30 @@ impl ByorGui {
                 (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
 
             let mut total_target_size = parent_size - parent_padding - total_spacing;
-            let mut nodes_to_resize = Vec::new();
+            let mut nodes_to_resize = NodeIdVec::new();
             let mut flex_ratio_sum = 0.0;
             for (node_id, node) in self.iter_children(parent_id) {
-                nodes_to_resize.push((node_id, node.style.flex_ratio));
-                flex_ratio_sum += node.style.flex_ratio;
+                if node.min_size != node.max_size {
+                    nodes_to_resize.push(node_id);
+                    flex_ratio_sum += node.style.flex_ratio;
+                }
             }
 
             loop {
                 let mut collection_changed = false;
-                nodes_to_resize.retain(|&(node_id, flex_ratio)| {
-                    let node_min_size = self.nodes[node_id].min_size.along_axis(axis);
-                    let node_max_size = self.nodes[node_id].max_size.along_axis(axis);
-                    let node_size = self.nodes[node_id].size.along_axis(axis);
+                nodes_to_resize.retain(|&mut node_id| {
+                    let node = &self.nodes[node_id];
 
+                    let min_size = node.min_size.along_axis(axis);
+                    let max_size = node.max_size.along_axis(axis);
+                    let size = node.size.along_axis(axis);
+
+                    let flex_ratio = node.style.flex_ratio;
                     let flex_factor = flex_ratio / flex_ratio_sum;
                     let target_size = total_target_size * flex_factor;
 
-                    if (target_size <= node_min_size) || (target_size >= node_max_size) {
-                        total_target_size -= node_size;
+                    if (target_size <= min_size) || (target_size >= max_size) {
+                        total_target_size -= size;
                         flex_ratio_sum -= flex_ratio;
                         collection_changed = true;
                         false
@@ -226,10 +231,13 @@ impl ByorGui {
                 }
             }
 
-            for (node_id, flex_ratio) in nodes_to_resize {
+            for node_id in nodes_to_resize.drain(..) {
+                let node = &mut self.nodes[node_id];
+
+                let flex_ratio = node.style.flex_ratio;
                 let flex_factor = flex_ratio / flex_ratio_sum;
                 let target_size = total_target_size * flex_factor;
-                *self.nodes[node_id].size.along_axis_mut(axis) = target_size;
+                *node.size.along_axis_mut(axis) = target_size;
             }
         } else {
             let available_space = parent_size - parent_padding;

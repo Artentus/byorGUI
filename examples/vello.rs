@@ -231,7 +231,8 @@ impl winit::application::ApplicationHandler for ExampleApp {
 }
 
 fn gui(gui: &mut ByorGui) {
-    gui.insert_node(
+    gui.insert_container_node(
+        None,
         &Style {
             width: Sizing::Fixed(100.0),
             height: Sizing::Grow,
@@ -240,16 +241,19 @@ fn gui(gui: &mut ByorGui) {
         |_| (),
     );
 
-    gui.insert_node(
+    gui.insert_container_node(
+        None,
         &Style {
             width: Sizing::Grow,
             height: Sizing::FitContent,
+            flex_ratio: Some(2.0),
             child_alignment: Property::Override(Alignment::End),
             cross_axis_alignment: Property::Override(Alignment::Center),
             ..Default::default()
         },
         |gui| {
-            gui.insert_node(
+            gui.insert_container_node(
+                None,
                 &Style {
                     width: Sizing::Fixed(100.0),
                     height: Sizing::Fixed(100.0),
@@ -260,7 +264,8 @@ fn gui(gui: &mut ByorGui) {
         },
     );
 
-    gui.insert_node(
+    gui.insert_container_node(
+        None,
         &Style {
             width: Sizing::Grow,
             height: Sizing::Grow,
@@ -268,7 +273,8 @@ fn gui(gui: &mut ByorGui) {
             ..Default::default()
         },
         |gui| {
-            gui.insert_node(
+            gui.insert_container_node(
+                None,
                 &Style {
                     width: Sizing::Grow,
                     height: Sizing::Fixed(100.0),
@@ -277,7 +283,8 @@ fn gui(gui: &mut ByorGui) {
                 |_| (),
             );
 
-            gui.insert_node(
+            gui.insert_container_node(
+                None,
                 &Style {
                     width: Sizing::Grow,
                     height: Sizing::Grow,
@@ -285,7 +292,8 @@ fn gui(gui: &mut ByorGui) {
                     ..Default::default()
                 },
                 |gui| {
-                    gui.insert_node(
+                    gui.insert_container_node(
+                        None,
                         &Style {
                             width: Sizing::Fixed(100.0),
                             height: Sizing::Fixed(100.0),
@@ -295,7 +303,8 @@ fn gui(gui: &mut ByorGui) {
                         |_| (),
                     );
 
-                    gui.insert_node(
+                    gui.insert_container_node(
+                        None,
                         &Style {
                             width: Sizing::Grow,
                             height: Sizing::Fixed(100.0),

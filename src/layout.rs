@@ -74,6 +74,19 @@ impl ComputedStyle {
     }
 }
 
+struct TextMeasurements {
+    min_width: Pixel,
+    preferred_width: Pixel,
+}
+
+fn measure_text_width(text: &str) -> TextMeasurements {
+    todo!()
+}
+
+fn measure_text_height(text: &str, width: Pixel) -> Pixel {
+    todo!()
+}
+
 impl ByorGui {
     // must be bottom up recursive
     fn compute_node_size(&mut self, node_id: NodeId, axis: Axis) {
@@ -85,34 +98,88 @@ impl ByorGui {
         }
 
         let node = &mut self.nodes[node_id];
+        let min_size = node.min_size.along_axis(axis);
+        let max_size = node.max_size.along_axis(axis);
 
+        // fixed sizing
         if let Sizing::Fixed(fixed_size) = node.style.size_along_axis(axis) {
-            *node.size.along_axis_mut(axis) = fixed_size;
+            let size = fixed_size.clamp(min_size, max_size);
+            *node.min_size.along_axis_mut(axis) = size;
+            *node.max_size.along_axis_mut(axis) = size;
+            *node.size.along_axis_mut(axis) = size;
             return;
         }
 
-        let padding = node.style.padding.along_axis(axis);
-        *node.size.along_axis_mut(axis) = padding[0] + padding[1];
+        // text sizing
+        if let Some(text) = node.text.as_deref() {
+            match axis {
+                Axis::X => {
+                    let TextMeasurements {
+                        min_width,
+                        preferred_width,
+                    } = measure_text_width(text);
 
-        let child_size = if axis.is_primary(node.style.layout_direction) {
-            let total_child_spacing =
-                (child_count.saturating_sub(1) as Pixel) * node.style.child_spacing;
-            let total_child_size: Pixel = self
-                .iter_children(node_id)
-                .map(|child| child.size.along_axis(axis))
-                .sum();
+                    let min_width = min_width.clamp(min_size, max_size);
+                    let width = preferred_width.clamp(min_width, max_size);
+                    node.min_size.width = min_width;
+                    node.size.width = width;
+                }
+                Axis::Y => {
+                    let height =
+                        measure_text_height(text, node.size.width).clamp(min_size, max_size);
+                    node.min_size.height = height;
+                    node.size.height = height;
+                }
+            }
 
-            total_child_spacing + total_child_size
-        } else {
-            let max_child_size = self
-                .iter_children(node_id)
-                .map(|child| child.size.along_axis(axis))
-                .max_by(Pixel::total_cmp)
-                .unwrap_or_default();
+            if !matches!(node.style.size_along_axis(axis), Sizing::Grow) {
+                *node.max_size.along_axis_mut(axis) = node.size.along_axis(axis);
+            }
 
-            max_child_size
-        };
-        *self.nodes[node_id].size.along_axis_mut(axis) += child_size;
+            return;
+        }
+
+        // fit content or grow sizing
+        {
+            let padding = node.style.padding.along_axis(axis);
+            let mut min_fit_size: Pixel = padding[0] + padding[1];
+            let mut fit_size: Pixel = min_fit_size;
+
+            let (min_child_size, child_size) = if axis.is_primary(node.style.layout_direction) {
+                let total_child_spacing =
+                    (child_count.saturating_sub(1) as Pixel) * node.style.child_spacing;
+
+                let mut total_min_child_size = total_child_spacing;
+                let mut total_child_size = total_child_spacing;
+                for (_, child) in self.iter_children(node_id) {
+                    total_min_child_size += child.min_size.along_axis(axis);
+                    total_child_size += child.size.along_axis(axis);
+                }
+
+                (total_min_child_size, total_child_size)
+            } else {
+                let mut max_min_child_size: Pixel = 0.0;
+                let mut max_child_size: Pixel = 0.0;
+                for (_, child) in self.iter_children(node_id) {
+                    max_min_child_size = max_min_child_size.max(child.min_size.along_axis(axis));
+                    max_child_size = max_child_size.max(child.size.along_axis(axis));
+                }
+
+                (max_min_child_size, max_child_size)
+            };
+            min_fit_size += min_child_size;
+            fit_size += child_size;
+
+            let min_fit_size = min_fit_size.clamp(min_size, max_size);
+            let fit_size = fit_size.clamp(min_size, max_size);
+
+            let node = &mut self.nodes[node_id];
+            *node.min_size.along_axis_mut(axis) = min_fit_size;
+            *node.size.along_axis_mut(axis) = fit_size;
+            if !matches!(node.style.size_along_axis(axis), Sizing::Grow) {
+                *node.max_size.along_axis_mut(axis) = fit_size;
+            }
+        }
     }
 
     // must be top down recursive
@@ -121,73 +188,64 @@ impl ByorGui {
         let parent_size = parent.size.along_axis(axis);
         let parent_padding: Pixel = parent.style.padding.along_axis(axis).into_iter().sum();
 
-        let child_count = self.child_count(parent_id);
+        let node_count = self.child_count(parent_id);
         if axis.is_primary(parent.style.layout_direction) {
             let total_spacing =
-                (child_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
-            let mut available_space = parent_size
-                - parent_padding
-                - total_spacing
-                - self
-                    .iter_children(parent_id)
-                    .filter(|&node| !matches!(node.style.size_along_axis(axis), Sizing::Grow))
-                    .map(|node| node.size.along_axis(axis))
-                    .sum::<Pixel>();
+                (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
 
-            if available_space > Pixel::EPSILON {
-                // grow
-                let mut children_to_grow: NodeIdVec = self
-                    .child_ids(parent_id)
-                    .iter()
-                    .copied()
-                    .filter(|&child_id| {
-                        matches!(
-                            self.nodes[child_id].style.size_along_axis(axis),
-                            Sizing::Grow,
-                        )
-                    })
-                    .collect();
+            let mut total_target_size = parent_size - parent_padding - total_spacing;
+            let mut nodes_to_resize = Vec::new();
+            let mut flex_ratio_sum = 0.0;
+            for (node_id, node) in self.iter_children(parent_id) {
+                nodes_to_resize.push((node_id, node.style.flex_ratio));
+                flex_ratio_sum += node.style.flex_ratio;
+            }
 
-                loop {
-                    let target_size = available_space / (children_to_grow.len() as Pixel);
+            loop {
+                let mut collection_changed = false;
+                nodes_to_resize.retain(|&(node_id, flex_ratio)| {
+                    let node_min_size = self.nodes[node_id].min_size.along_axis(axis);
+                    let node_max_size = self.nodes[node_id].max_size.along_axis(axis);
+                    let node_size = self.nodes[node_id].size.along_axis(axis);
 
-                    let mut collection_altered = false;
-                    children_to_grow.retain(|&mut child_id| {
-                        let child_size = self.nodes[child_id].size.along_axis(axis);
-                        if child_size > target_size {
-                            available_space -= child_size;
-                            collection_altered = true;
-                            false
-                        } else {
-                            true
-                        }
-                    });
+                    let flex_factor = flex_ratio / flex_ratio_sum;
+                    let target_size = total_target_size * flex_factor;
 
-                    if !collection_altered {
-                        for child_id in children_to_grow {
-                            *self.nodes[child_id].size.along_axis_mut(axis) = target_size;
-                        }
-                        break;
+                    if (target_size <= node_min_size) || (target_size >= node_max_size) {
+                        total_target_size -= node_size;
+                        flex_ratio_sum -= flex_ratio;
+                        collection_changed = true;
+                        false
+                    } else {
+                        true
                     }
+                });
+
+                if !collection_changed {
+                    break;
                 }
-            } else if available_space < Pixel::EPSILON {
-                // shrink
-                // TODO
+            }
+
+            for (node_id, flex_ratio) in nodes_to_resize {
+                let flex_factor = flex_ratio / flex_ratio_sum;
+                let target_size = total_target_size * flex_factor;
+                *self.nodes[node_id].size.along_axis_mut(axis) = target_size;
             }
         } else {
             let available_space = parent_size - parent_padding;
-            let mut children = self.iter_children_mut(parent_id);
-            while let Some(child) = children.next() {
-                if matches!(child.style.size_along_axis(axis), Sizing::Grow) {
-                    *child.size.along_axis_mut(axis) = available_space;
-                }
+            let mut nodes = self.iter_children_mut(parent_id);
+            while let Some(node) = nodes.next() {
+                let node_min_size = node.min_size.along_axis(axis);
+                let node_max_size = node.max_size.along_axis(axis);
+                *node.size.along_axis_mut(axis) =
+                    available_space.clamp(node_min_size, node_max_size);
             }
         }
 
         // we have to use index-based iteration because of borrowing
-        for child_index in 0..child_count {
-            let child_id = self.children[parent_id][child_index];
-            self.grow_or_shrink_children(child_id, axis);
+        for node_index in 0..node_count {
+            let node_id = self.children[parent_id][node_index];
+            self.grow_or_shrink_children(node_id, axis);
         }
     }
 
@@ -200,31 +258,31 @@ impl ByorGui {
         let parent_child_spacing = parent.style.child_spacing;
         let parent_child_alignment = parent.style.child_alignment;
 
-        let mut children = self.iter_children_mut(parent_id);
+        let mut nodes = self.iter_children_mut(parent_id);
         if axis.is_primary(parent_layout_direction) {
             let mut offset = 0.0;
-            while let Some(child) = children.next() {
-                *child.position.along_axis_mut(axis) = parent_position + parent_padding[0] + offset;
+            while let Some(node) = nodes.next() {
+                *node.position.along_axis_mut(axis) = parent_position + parent_padding[0] + offset;
 
-                offset += child.size.along_axis(axis);
+                offset += node.size.along_axis(axis);
                 offset += parent_child_spacing;
             }
 
-            let total_child_size = (offset - parent_child_spacing).max(0.0);
+            let total_node_size = (offset - parent_child_spacing).max(0.0);
             let alignment_offset = match parent_child_alignment {
                 Alignment::Start => 0.0,
-                Alignment::Center => (parent_size - total_child_size) / 2.0 - parent_padding[0],
+                Alignment::Center => (parent_size - total_node_size) / 2.0 - parent_padding[0],
                 Alignment::End => {
-                    parent_size - total_child_size - parent_padding[0] - parent_padding[1]
+                    parent_size - total_node_size - parent_padding[0] - parent_padding[1]
                 }
             };
 
-            children.reset();
-            while let Some(child) = children.next() {
-                *child.position.along_axis_mut(axis) += alignment_offset;
+            nodes.reset();
+            while let Some(node) = nodes.next() {
+                *node.position.along_axis_mut(axis) += alignment_offset;
             }
         } else {
-            while let Some(child) = children.next() {
+            while let Some(child) = nodes.next() {
                 *child.position.along_axis_mut(axis) = match child.style.cross_axis_alignment {
                     Alignment::Start => parent_position + parent_padding[0],
                     Alignment::Center => {
@@ -240,10 +298,10 @@ impl ByorGui {
         }
 
         // we have to use index-based iteration because of borrowing
-        let child_count = self.child_count(parent_id);
-        for child_index in 0..child_count {
-            let child_id = self.children[parent_id][child_index];
-            self.position_children(child_id, axis);
+        let node_count = self.child_count(parent_id);
+        for node_index in 0..node_count {
+            let node_id = self.children[parent_id][node_index];
+            self.position_children(node_id, axis);
         }
     }
 

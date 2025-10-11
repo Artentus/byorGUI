@@ -239,6 +239,11 @@ impl<T> From<Option<T>> for Property<T> {
 pub struct Style {
     pub width: Sizing,
     pub height: Sizing,
+    pub min_width: Option<Pixel>,
+    pub min_height: Option<Pixel>,
+    pub max_width: Option<Pixel>,
+    pub max_height: Option<Pixel>,
+    pub flex_ratio: Option<f32>,
 
     pub padding: Property<Padding>,
     pub child_spacing: Property<Pixel>,
@@ -281,6 +286,7 @@ impl Default for RootStyle {
 struct ComputedStyle {
     width: Sizing,
     height: Sizing,
+    flex_ratio: f32,
 
     padding: Padding,
     child_spacing: Pixel,
@@ -297,6 +303,7 @@ impl ComputedStyle {
         Self {
             width: Sizing::Fixed(screen_size.width),
             height: Sizing::Fixed(screen_size.height),
+            flex_ratio: 1.0,
 
             padding: style.padding,
             child_spacing: style.child_spacing,
@@ -314,6 +321,7 @@ fn compute_style(style: &Style, base: &ComputedStyle) -> ComputedStyle {
     ComputedStyle {
         width: style.width,
         height: style.height,
+        flex_ratio: style.flex_ratio.unwrap_or(1.0),
 
         padding: style.padding.unwrap_or(base.padding),
         child_spacing: style.child_spacing.unwrap_or(base.child_spacing),
@@ -353,17 +361,47 @@ slotmap::new_key_type! { struct NodeId; }
 struct Node {
     uid: Option<Uid>,
     style: ComputedStyle,
-    position: Position,
+    text: Option<String>,
+    min_size: Size,
+    max_size: Size,
     size: Size,
+    position: Position,
 }
 
 impl Node {
-    fn new(uid: Option<Uid>, style: ComputedStyle) -> Self {
+    fn new_root(style: &RootStyle, screen_size: Size) -> Self {
+        let style = ComputedStyle::from_root_style(style, screen_size);
+
+        Node {
+            uid: None,
+            style,
+            text: None,
+            min_size: screen_size,
+            max_size: screen_size,
+            size: Size::default(),
+            position: Position::default(),
+        }
+    }
+
+    fn new(uid: Option<Uid>, style: &Style, parent_style: &ComputedStyle) -> Self {
+        let min_size = Size {
+            width: style.min_width.unwrap_or(0.0),
+            height: style.min_height.unwrap_or(0.0),
+        };
+        let max_size = Size {
+            width: style.max_width.unwrap_or(Pixel::MAX),
+            height: style.max_height.unwrap_or(Pixel::MAX),
+        };
+        let style = compute_style(style, parent_style);
+
         Self {
             uid,
             style,
-            position: Position::default(),
+            text: None,
+            min_size,
+            max_size,
             size: Size::default(),
+            position: Position::default(),
         }
     }
 }
@@ -446,10 +484,10 @@ impl ByorGui {
     }
 
     #[must_use]
-    fn iter_children(&self, node_id: NodeId) -> impl Iterator<Item = &Node> {
+    fn iter_children(&self, node_id: NodeId) -> impl Iterator<Item = (NodeId, &Node)> {
         self.child_ids(node_id)
             .iter()
-            .map(|&child_id| &self.nodes[child_id])
+            .map(|&child_id| (child_id, &self.nodes[child_id]))
     }
 
     #[must_use]
@@ -466,10 +504,7 @@ impl ByorGui {
         self.children.clear();
         assert!(self.ancestor_stack.is_empty());
 
-        let root = Node::new(
-            None,
-            ComputedStyle::from_root_style(&self.root_style, screen_size),
-        );
+        let root = Node::new_root(self.root_style(), screen_size);
         let root_id = self.nodes.insert(root);
         self.ancestor_stack.push(root_id);
 
@@ -478,12 +513,7 @@ impl ByorGui {
     }
 
     #[must_use]
-    fn insert_node_impl<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        content: impl UiContents<R>,
-    ) -> NodeResponse<R> {
+    fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeId {
         assert!(
             !self.ancestor_stack.is_empty(),
             "inserting nodes is only possible between calls to `begin_frame` and `end_frame`",
@@ -491,22 +521,23 @@ impl ByorGui {
 
         let parent_node_id = self.current_node_id();
         let parent_style = &self.nodes[parent_node_id].style;
-        let style = compute_style(style, parent_style);
+        let node_id = self.nodes.insert(Node::new(uid, style, parent_style));
 
-        let node_id = self.nodes.insert(Node::new(uid, style));
         self.children
             .entry(parent_node_id)
             .expect("invalid node ID in ancestor stack")
             .or_default()
             .push(node_id);
+
         if let Some(uid) = uid {
             assert!(self.uid_map.insert_checked(uid, node_id), "duplicate UID");
         }
 
-        self.ancestor_stack.push(node_id);
-        let result = content(self);
-        assert!(self.ancestor_stack.pop().is_some());
+        node_id
+    }
 
+    #[must_use]
+    fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
         let hovered = self.hovered_node_uid.zip(uid).is_some_and(|(a, b)| a == b);
         let clicked = hovered && self.mouse_state.button1_pressed;
 
@@ -517,17 +548,31 @@ impl ByorGui {
         }
     }
 
-    pub fn insert_node_with_uid<R>(
+    pub fn insert_container_node<R>(
         &mut self,
-        uid: Uid,
+        uid: Option<Uid>,
         style: &Style,
-        content: impl UiContents<R>,
+        contents: impl UiContents<R>,
     ) -> NodeResponse<R> {
-        self.insert_node_impl(Some(uid), style, content)
+        let node_id = self.insert_leaf_node(uid, style);
+
+        self.ancestor_stack.push(node_id);
+        let result = contents(self);
+        assert!(self.ancestor_stack.pop().is_some());
+
+        self.compute_node_response(uid, result)
     }
 
-    pub fn insert_node<R>(&mut self, style: &Style, content: impl UiContents<R>) -> R {
-        self.insert_node_impl(None, style, content).result
+    pub fn insert_text_node(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        text: String,
+    ) -> NodeResponse<()> {
+        let node_id = self.insert_leaf_node(uid, style);
+        self.nodes[node_id].text = Some(text);
+
+        self.compute_node_response(uid, ())
     }
 
     pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {

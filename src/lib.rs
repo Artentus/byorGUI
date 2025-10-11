@@ -1,5 +1,6 @@
 mod layout;
 pub mod rendering;
+pub mod widgets;
 
 use color::{AlphaColor, Srgb};
 use intmap::{IntKey, IntMap};
@@ -332,27 +333,27 @@ impl Default for RootStyle {
 }
 
 #[derive(Debug, Clone)]
-struct ComputedStyle {
-    width: Sizing,
-    height: Sizing,
-    flex_ratio: f32,
+pub struct ComputedStyle {
+    pub width: Sizing,
+    pub height: Sizing,
+    pub flex_ratio: f32,
 
-    padding: Padding,
-    child_spacing: Pixel,
-    layout_direction: Direction,
-    child_alignment: Alignment,
-    cross_axis_alignment: Alignment,
-    background: Brush,
-    foreground: Brush,
-    font: FontStack<'static>,
-    font_size: Pixel,
-    font_weight: FontWeight,
-    font_width: FontWidth,
-    text_underline: bool,
-    text_strikethrough: bool,
-    allow_text_wrap: bool,
-    horizontal_text_alignment: HorizontalTextAlignment,
-    vertical_text_alignment: VerticalTextAlignment,
+    pub padding: Padding,
+    pub child_spacing: Pixel,
+    pub layout_direction: Direction,
+    pub child_alignment: Alignment,
+    pub cross_axis_alignment: Alignment,
+    pub background: Brush,
+    pub foreground: Brush,
+    pub font: FontStack<'static>,
+    pub font_size: Pixel,
+    pub font_weight: FontWeight,
+    pub font_width: FontWidth,
+    pub text_underline: bool,
+    pub text_strikethrough: bool,
+    pub allow_text_wrap: bool,
+    pub horizontal_text_alignment: HorizontalTextAlignment,
+    pub vertical_text_alignment: VerticalTextAlignment,
 }
 
 impl ComputedStyle {
@@ -380,48 +381,110 @@ impl ComputedStyle {
             vertical_text_alignment: style.vertical_text_alignment,
         }
     }
+
+    pub fn into_style(self) -> Style {
+        Style {
+            width: self.width,
+            height: self.height,
+            flex_ratio: Some(self.flex_ratio),
+
+            padding: Property::Override(self.padding),
+            child_spacing: Property::Override(self.child_spacing),
+            layout_direction: Property::Override(self.layout_direction),
+            child_alignment: Property::Override(self.child_alignment),
+            cross_axis_alignment: Property::Override(self.cross_axis_alignment),
+            background: Property::Override(self.background),
+            foreground: Property::Override(self.foreground),
+            font: Property::Override(self.font),
+            font_size: Property::Override(self.font_size),
+            font_weight: Property::Override(self.font_weight),
+            font_width: Property::Override(self.font_width),
+            text_underline: Property::Override(self.text_underline),
+            text_strikethrough: Property::Override(self.text_strikethrough),
+            allow_text_wrap: Property::Override(self.allow_text_wrap),
+            horizontal_text_alignment: Property::Override(self.horizontal_text_alignment),
+            vertical_text_alignment: Property::Override(self.vertical_text_alignment),
+
+            ..Default::default()
+        }
+    }
 }
 
-fn compute_style(style: &Style, base: &ComputedStyle) -> ComputedStyle {
-    ComputedStyle {
-        width: style.width,
-        height: style.height,
-        flex_ratio: style.flex_ratio.unwrap_or(1.0),
+impl Style {
+    #[must_use]
+    pub fn compute(&self, base: &ComputedStyle) -> ComputedStyle {
+        ComputedStyle {
+            width: self.width,
+            height: self.height,
+            flex_ratio: self.flex_ratio.unwrap_or(1.0),
 
-        padding: style.padding.unwrap_or(base.padding),
-        child_spacing: style.child_spacing.unwrap_or(base.child_spacing),
-        layout_direction: style.layout_direction.unwrap_or(base.layout_direction),
-        child_alignment: style.child_alignment.unwrap_or(base.child_alignment),
-        cross_axis_alignment: style
-            .cross_axis_alignment
-            .unwrap_or(base.cross_axis_alignment),
-        background: style
-            .background
-            .clone()
-            .unwrap_or_else(|| base.background.clone()),
-        foreground: style
-            .foreground
-            .clone()
-            .unwrap_or_else(|| base.foreground.clone()),
-        font: style.font.clone().unwrap_or_else(|| base.font.clone()),
-        font_size: style.font_size.unwrap_or(base.font_size),
-        font_weight: style.font_weight.unwrap_or(base.font_weight),
-        font_width: style.font_width.unwrap_or(base.font_width),
-        text_underline: style.text_underline.unwrap_or(base.text_underline),
-        text_strikethrough: style.text_strikethrough.unwrap_or(base.text_strikethrough),
-        allow_text_wrap: style.allow_text_wrap.unwrap_or(base.allow_text_wrap),
-        horizontal_text_alignment: style
-            .horizontal_text_alignment
-            .unwrap_or(base.horizontal_text_alignment),
-        vertical_text_alignment: style
-            .vertical_text_alignment
-            .unwrap_or(base.vertical_text_alignment),
+            padding: self.padding.unwrap_or(base.padding),
+            child_spacing: self.child_spacing.unwrap_or(base.child_spacing),
+            layout_direction: self.layout_direction.unwrap_or(base.layout_direction),
+            child_alignment: self.child_alignment.unwrap_or(base.child_alignment),
+            cross_axis_alignment: self
+                .cross_axis_alignment
+                .unwrap_or(base.cross_axis_alignment),
+            background: self
+                .background
+                .clone()
+                .unwrap_or_else(|| base.background.clone()),
+            foreground: self
+                .foreground
+                .clone()
+                .unwrap_or_else(|| base.foreground.clone()),
+            font: self.font.clone().unwrap_or_else(|| base.font.clone()),
+            font_size: self.font_size.unwrap_or(base.font_size),
+            font_weight: self.font_weight.unwrap_or(base.font_weight),
+            font_width: self.font_width.unwrap_or(base.font_width),
+            text_underline: self.text_underline.unwrap_or(base.text_underline),
+            text_strikethrough: self.text_strikethrough.unwrap_or(base.text_strikethrough),
+            allow_text_wrap: self.allow_text_wrap.unwrap_or(base.allow_text_wrap),
+            horizontal_text_alignment: self
+                .horizontal_text_alignment
+                .unwrap_or(base.horizontal_text_alignment),
+            vertical_text_alignment: self
+                .vertical_text_alignment
+                .unwrap_or(base.vertical_text_alignment),
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Uid(u64);
+
+impl Uid {
+    #[must_use]
+    pub const fn new(value: &[u8]) -> Self {
+        Self(rapidhash::v3::rapidhash_v3(value))
+    }
+
+    #[must_use]
+    pub const fn concat(self, other: Self) -> Self {
+        let low_bytes = self.0.to_le_bytes();
+        let high_bytes = other.0.to_le_bytes();
+        let bytes = [
+            low_bytes[0],
+            low_bytes[1],
+            low_bytes[2],
+            low_bytes[3],
+            low_bytes[4],
+            low_bytes[5],
+            low_bytes[6],
+            low_bytes[7],
+            high_bytes[0],
+            high_bytes[1],
+            high_bytes[2],
+            high_bytes[3],
+            high_bytes[4],
+            high_bytes[5],
+            high_bytes[6],
+            high_bytes[7],
+        ];
+        Self::new(&bytes)
+    }
+}
 
 impl IntKey for Uid {
     type Int = u64;
@@ -432,11 +495,6 @@ impl IntKey for Uid {
     fn into_int(self) -> Self::Int {
         self.0
     }
-}
-
-#[must_use]
-pub const fn uid(value: &[u8]) -> Uid {
-    Uid(rapidhash::v3::rapidhash_v3(value))
 }
 
 slotmap::new_key_type! {
@@ -487,7 +545,7 @@ impl Node {
         };
         let horizontal_scroll = style.allow_horizontal_scoll.then_some(0.0);
         let vertical_scroll = style.allow_vertical_scoll.then_some(0.0);
-        let style = compute_style(style, parent_style);
+        let style = style.compute(parent_style);
 
         Self {
             uid,
@@ -614,6 +672,15 @@ impl ByorGui {
         self.mouse_state = mouse_state;
     }
 
+    pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
+        let root_id = self.ancestor_stack.pop().unwrap();
+        assert!(self.ancestor_stack.is_empty());
+
+        self.layout(root_id);
+        // TODO: find hovered element
+        self.render(root_id, renderer)
+    }
+
     #[must_use]
     fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeId {
         assert!(
@@ -650,21 +717,6 @@ impl ByorGui {
         }
     }
 
-    pub fn insert_container_node<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        contents: impl FnOnce(&mut ByorGui) -> R,
-    ) -> NodeResponse<R> {
-        let node_id = self.insert_leaf_node(uid, style);
-
-        self.ancestor_stack.push(node_id);
-        let result = contents(self);
-        assert!(self.ancestor_stack.pop().is_some());
-
-        self.compute_node_response(uid, result)
-    }
-
     fn layout_text(&mut self, text: &str, node_id: NodeId) {
         use parley::style::{LineHeight, OverflowWrap, StyleProperty};
 
@@ -686,8 +738,54 @@ impl ByorGui {
         let text_layout = self.text_layouts.insert(builder.build(text));
         self.nodes[node_id].text_layout = Some(text_layout);
     }
+}
 
-    pub fn insert_text_node(
+pub struct ByorGuiContext<'gui> {
+    gui: &'gui mut ByorGui,
+    parent_id: NodeId,
+}
+
+pub trait GuiBuilder {
+    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()>;
+
+    fn insert_container_node<R>(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> NodeResponse<R>;
+
+    fn insert_text_node(&mut self, uid: Option<Uid>, style: &Style, text: &str)
+    -> NodeResponse<()>;
+
+    fn parent_style(&self) -> &ComputedStyle;
+}
+
+impl GuiBuilder for ByorGui {
+    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+        let _ = self.insert_leaf_node(uid, style);
+        self.compute_node_response(uid, ())
+    }
+
+    fn insert_container_node<R>(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> NodeResponse<R> {
+        let node_id = self.insert_leaf_node(uid, style);
+
+        self.ancestor_stack.push(node_id);
+        let result = contents(ByorGuiContext {
+            gui: self,
+            parent_id: node_id,
+        });
+        assert!(self.ancestor_stack.pop().is_some());
+
+        self.compute_node_response(uid, result)
+    }
+
+    fn insert_text_node(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
@@ -699,13 +797,42 @@ impl ByorGui {
         self.compute_node_response(uid, ())
     }
 
-    pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
-        let root_id = self.ancestor_stack.pop().unwrap();
-        assert!(self.ancestor_stack.is_empty());
+    fn parent_style(&self) -> &ComputedStyle {
+        let root_id = *self.ancestor_stack.first().expect(
+            "the root style is only available between calls to `begin_frame` and `end_frame`",
+        );
+        &self.nodes[root_id].style
+    }
+}
 
-        self.layout(root_id);
-        // TODO: find hovered element
-        self.render(root_id, renderer)
+impl GuiBuilder for ByorGuiContext<'_> {
+    #[inline]
+    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+        self.gui.insert_node(uid, style)
+    }
+
+    #[inline]
+    fn insert_container_node<R>(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> NodeResponse<R> {
+        self.gui.insert_container_node(uid, style, contents)
+    }
+
+    #[inline]
+    fn insert_text_node(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        text: &str,
+    ) -> NodeResponse<()> {
+        self.gui.insert_text_node(uid, style, text)
+    }
+
+    fn parent_style(&self) -> &ComputedStyle {
+        &self.gui.nodes[self.parent_id].style
     }
 }
 

@@ -1,4 +1,5 @@
 use anyhow::{Result, format_err};
+use byor_gui::widgets::*;
 use byor_gui::*;
 use color::AlphaColor;
 use std::sync::Arc;
@@ -243,8 +244,8 @@ fn gui(gui: &mut ByorGui) {
         |_| (),
     );
 
-    gui.insert_container_node(
-        None,
+    gui.horizontal_scroll_view(
+        const { Uid::new(b"scroll_view") },
         &Style {
             width: Sizing::Grow,
             height: Sizing::FitContent,
@@ -252,10 +253,9 @@ fn gui(gui: &mut ByorGui) {
             flex_ratio: Some(2.0),
             child_alignment: Property::Override(Alignment::End),
             cross_axis_alignment: Property::Override(Alignment::Center),
-            allow_horizontal_scoll: true,
             ..Default::default()
         },
-        |gui| {
+        |mut gui| {
             gui.insert_container_node(
                 None,
                 &Style {
@@ -276,7 +276,7 @@ fn gui(gui: &mut ByorGui) {
             layout_direction: Property::Override(Direction::TopToBottom),
             ..Default::default()
         },
-        |gui| {
+        |mut gui| {
             gui.insert_container_node(
                 None,
                 &Style {
@@ -295,7 +295,7 @@ fn gui(gui: &mut ByorGui) {
                     child_alignment: Property::Override(Alignment::Center),
                     ..Default::default()
                 },
-                |gui| {
+                |mut gui| {
                     gui.insert_container_node(
                         None,
                         &Style {

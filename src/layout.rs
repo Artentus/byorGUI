@@ -18,6 +18,24 @@ impl Axis {
     }
 }
 
+impl Direction {
+    #[inline]
+    fn primary_axis(self) -> Axis {
+        match self {
+            Direction::LeftToRight => Axis::X,
+            Direction::TopToBottom => Axis::Y,
+        }
+    }
+
+    #[inline]
+    fn cross_axis(self) -> Axis {
+        match self {
+            Direction::LeftToRight => Axis::Y,
+            Direction::TopToBottom => Axis::X,
+        }
+    }
+}
+
 impl Position {
     #[inline]
     fn along_axis(self, axis: Axis) -> Pixel {
@@ -280,29 +298,33 @@ impl ByorGui {
         }
     }
 
-    fn position_children(&mut self, parent_id: NodeId, axis: Axis) {
+    fn position_children(&mut self, parent_id: NodeId) {
         let parent = &mut self.nodes[parent_id];
-        let parent_position = parent.position.along_axis(axis);
-        let parent_size = parent.size.along_axis(axis);
-        let parent_padding = parent.style.padding.along_axis(axis);
         let parent_layout_direction = parent.style.layout_direction;
         let parent_child_spacing = parent.style.child_spacing;
         let parent_child_alignment = parent.style.child_alignment;
 
-        if let Some(&text_layout_id) = parent.text_layout.as_ref()
-            && (axis == Axis::Y)
-        {
+        if let Some(&text_layout_id) = parent.text_layout.as_ref() {
             let text_layout = &self.text_layouts[text_layout_id];
 
             parent.vertical_text_offset = match parent.style.vertical_text_alignment {
                 VerticalTextAlignment::Top => 0.0,
-                VerticalTextAlignment::Center => (parent_size - text_layout.height()) / 2.0,
-                VerticalTextAlignment::Bottom => parent_size - text_layout.height(),
+                VerticalTextAlignment::Center => (parent.size.height - text_layout.height()) / 2.0,
+                VerticalTextAlignment::Bottom => parent.size.height - text_layout.height(),
             };
         }
 
-        let mut nodes = self.iter_children_mut(parent_id);
-        if axis.is_primary(parent_layout_direction) {
+        // primary axis
+        {
+            let axis = parent_layout_direction.primary_axis();
+
+            let parent = &self.nodes[parent_id];
+            let parent_position = parent.position.along_axis(axis);
+            let parent_size = parent.size.along_axis(axis);
+            let parent_padding = parent.style.padding.along_axis(axis);
+
+            let mut nodes = self.iter_children_mut(parent_id);
+
             let mut offset = 0.0;
             while let Some(node) = nodes.next() {
                 *node.position.along_axis_mut(axis) = parent_position + parent_padding[0] + offset;
@@ -324,7 +346,19 @@ impl ByorGui {
             while let Some(node) = nodes.next() {
                 *node.position.along_axis_mut(axis) += alignment_offset;
             }
-        } else {
+        }
+
+        // cross axis
+        {
+            let axis = parent_layout_direction.cross_axis();
+
+            let parent = &self.nodes[parent_id];
+            let parent_position = parent.position.along_axis(axis);
+            let parent_size = parent.size.along_axis(axis);
+            let parent_padding = parent.style.padding.along_axis(axis);
+
+            let mut nodes = self.iter_children_mut(parent_id);
+
             while let Some(node) = nodes.next() {
                 *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment {
                     Alignment::Start => parent_position + parent_padding[0],
@@ -344,7 +378,7 @@ impl ByorGui {
         let node_count = self.child_count(parent_id);
         for node_index in 0..node_count {
             let node_id = self.children[parent_id][node_index];
-            self.position_children(node_id, axis);
+            self.position_children(node_id);
         }
     }
 
@@ -353,7 +387,6 @@ impl ByorGui {
         self.grow_or_shrink_children(root_id, Axis::X);
         self.compute_node_size(root_id, Axis::Y);
         self.grow_or_shrink_children(root_id, Axis::Y);
-        self.position_children(root_id, Axis::X);
-        self.position_children(root_id, Axis::Y);
+        self.position_children(root_id);
     }
 }

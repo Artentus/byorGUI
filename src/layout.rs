@@ -92,7 +92,7 @@ impl ComputedStyle {
     }
 }
 
-impl Node {
+impl PersistentState {
     #[inline]
     fn scroll_along_axis(&self, axis: Axis) -> Option<Pixel> {
         match axis {
@@ -233,7 +233,11 @@ impl ByorGui {
             let fit_size = fit_size.clamp(min_size, max_size);
 
             let node = &mut self.nodes[node_id];
-            *node.min_size.along_axis_mut(axis) = if node.scroll_along_axis(axis).is_some() {
+            let scroll = node
+                .uid
+                .and_then(|uid| self.persistent_state.get(uid))
+                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis));
+            *node.min_size.along_axis_mut(axis) = if scroll.is_some() {
                 min_size
             } else {
                 min_fit_size
@@ -272,7 +276,11 @@ impl ByorGui {
 
             'grow_or_shrink: {
                 // if the parent supports scrolling, do not shrink nodes
-                if parent.scroll_along_axis(axis).is_some() && (available_space <= 0.0) {
+                let parent_scroll = parent
+                    .uid
+                    .and_then(|uid| self.persistent_state.get(uid))
+                    .and_then(|persistent_state| persistent_state.scroll_along_axis(axis));
+                if parent_scroll.is_some() && (available_space <= 0.0) {
                     break 'grow_or_shrink;
                 }
 
@@ -368,7 +376,11 @@ impl ByorGui {
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
             let parent_padding = parent.style.padding.along_axis(axis);
-            let parent_scroll = parent.scroll_along_axis(axis).unwrap_or_default();
+            let parent_scroll = parent
+                .uid
+                .and_then(|uid| self.persistent_state.get(uid))
+                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis))
+                .unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);
 
@@ -404,7 +416,11 @@ impl ByorGui {
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
             let parent_padding = parent.style.padding.along_axis(axis);
-            let parent_scroll = parent.scroll_along_axis(axis).unwrap_or_default();
+            let parent_scroll = parent
+                .uid
+                .and_then(|uid| self.persistent_state.get(uid))
+                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis))
+                .unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);
 

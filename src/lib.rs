@@ -512,8 +512,6 @@ struct Node {
     size: Size,
     position: Position,
     vertical_text_offset: Pixel,
-    horizontal_scroll: Option<Pixel>,
-    vertical_scroll: Option<Pixel>,
 }
 
 impl Node {
@@ -529,8 +527,6 @@ impl Node {
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
-            horizontal_scroll: None,
-            vertical_scroll: None,
         }
     }
 
@@ -543,8 +539,6 @@ impl Node {
             width: style.max_width.unwrap_or(Pixel::MAX),
             height: style.max_height.unwrap_or(Pixel::MAX),
         };
-        let horizontal_scroll = style.allow_horizontal_scoll.then_some(0.0);
-        let vertical_scroll = style.allow_vertical_scoll.then_some(0.0);
         let style = style.compute(parent_style);
 
         Self {
@@ -556,10 +550,14 @@ impl Node {
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
-            horizontal_scroll,
-            vertical_scroll,
         }
     }
+}
+
+#[derive(Default)]
+pub struct PersistentState {
+    pub horizontal_scroll: Option<Pixel>,
+    pub vertical_scroll: Option<Pixel>,
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -572,6 +570,7 @@ pub struct ByorGui {
     uid_map: IntMap<Uid, NodeId>,
     ancestor_stack: Vec<NodeId>,
     text_layouts: SlotMap<TextLayoutId, TextLayout<Brush>>,
+    persistent_state: IntMap<Uid, PersistentState>,
 
     root_style: RootStyle,
     prev_mouse_state: MouseState,
@@ -672,13 +671,58 @@ impl ByorGui {
         self.mouse_state = mouse_state;
     }
 
+    fn find_hovered_element(&self, node_id: NodeId) -> Option<Uid> {
+        for &child_id in self.child_ids(node_id) {
+            if let Some(uid) = self.find_hovered_element(child_id) {
+                return Some(uid);
+            }
+        }
+
+        let node = &self.nodes[node_id];
+        if let Some(uid) = node.uid {
+            let mouse_position = self.mouse_state.position;
+            if (mouse_position.x >= node.position.x)
+                && (mouse_position.x <= node.position.x + node.size.width)
+                && (mouse_position.y >= node.position.y)
+                && (mouse_position.y <= node.position.y + node.size.height)
+            {
+                return Some(uid);
+            }
+        }
+
+        None
+    }
+
     pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
         let root_id = self.ancestor_stack.pop().unwrap();
         assert!(self.ancestor_stack.is_empty());
 
         self.layout(root_id);
-        // TODO: find hovered element
+        self.hovered_node_uid = self.find_hovered_element(root_id);
         self.render(root_id, renderer)
+    }
+
+    fn update_persistent_state(&mut self, uid: Uid, style: &Style) {
+        let state = self
+            .persistent_state
+            .entry(uid)
+            .or_insert(PersistentState::default());
+
+        if style.allow_horizontal_scoll {
+            if state.horizontal_scroll.is_none() {
+                state.horizontal_scroll = Some(0.0);
+            }
+        } else {
+            state.horizontal_scroll = None;
+        }
+
+        if style.allow_vertical_scoll {
+            if state.vertical_scroll.is_none() {
+                state.vertical_scroll = Some(0.0);
+            }
+        } else {
+            state.vertical_scroll = None;
+        }
     }
 
     #[must_use]
@@ -700,6 +744,7 @@ impl ByorGui {
 
         if let Some(uid) = uid {
             assert!(self.uid_map.insert_checked(uid, node_id), "duplicate UID");
+            self.update_persistent_state(uid, style);
         }
 
         node_id
@@ -759,6 +804,10 @@ pub trait GuiBuilder {
     -> NodeResponse<()>;
 
     fn parent_style(&self) -> &ComputedStyle;
+
+    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState>;
+
+    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState;
 }
 
 impl GuiBuilder for ByorGui {
@@ -803,6 +852,17 @@ impl GuiBuilder for ByorGui {
         );
         &self.nodes[root_id].style
     }
+
+    #[inline]
+    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState> {
+        self.persistent_state.get(uid)
+    }
+
+    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
+        self.persistent_state
+            .entry(uid)
+            .or_insert(PersistentState::default())
+    }
 }
 
 impl GuiBuilder for ByorGuiContext<'_> {
@@ -833,6 +893,16 @@ impl GuiBuilder for ByorGuiContext<'_> {
 
     fn parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
+    }
+
+    #[inline]
+    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState> {
+        self.gui.get_persistent_state(uid)
+    }
+
+    #[inline]
+    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
+        self.gui.get_persistent_state_mut(uid)
     }
 }
 

@@ -82,7 +82,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 window,
                 window_size.width,
                 window_size.height,
-                PresentMode::AutoVsync,
+                PresentMode::Fifo,
             ))
             .expect("failed to create surface");
 
@@ -256,15 +256,17 @@ fn gui(gui: &mut ByorGui) {
             ..Default::default()
         },
         |mut gui| {
-            gui.insert_container_node(
-                None,
-                &Style {
-                    width: Sizing::Fixed(200.0),
-                    height: Sizing::Fixed(100.0),
-                    ..Default::default()
-                },
-                |_| (),
-            );
+            for _ in 0..5 {
+                gui.insert_container_node(
+                    None,
+                    &Style {
+                        width: Sizing::Fixed(100.0),
+                        height: Sizing::Fixed(100.0),
+                        ..Default::default()
+                    },
+                    |_| (),
+                );
+            }
         },
     );
 

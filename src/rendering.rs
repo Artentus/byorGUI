@@ -55,14 +55,7 @@ impl ByorGui {
             Brush::Solid(LAYER_COLORS[depth]),
         )?;
 
-        let clip_position = Position {
-            x: node.position.x + node.style.padding.left,
-            y: node.position.y + node.style.padding.top,
-        };
-        let clip_size = Size {
-            width: node.size.width - node.style.padding.left - node.style.padding.right,
-            height: node.size.height - node.style.padding.top - node.style.padding.bottom,
-        };
+        let (clip_position, clip_size) = node.clip_bounds();
         renderer.push_clip_rect(clip_position, clip_size)?;
 
         if let Some(&text_layout_id) = node.text_layout.as_ref() {

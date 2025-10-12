@@ -48,7 +48,7 @@ pub trait WidgetBuilder: GuiBuilder {
             width: Sizing::Grow,
             height: Sizing::FitContent,
             padding: Padding::default().into(),
-            child_spacing: 2.0.into(),
+            child_spacing: 1.0.into(),
             layout_direction: Direction::LeftToRight.into(),
             ..Default::default()
         };
@@ -62,23 +62,34 @@ pub trait WidgetBuilder: GuiBuilder {
             ..Default::default()
         };
 
+        let scroll_factor = if let Some(persistent_state) = self.get_persistent_state(uid) {
+            let scroll = persistent_state.horizontal_scroll.unwrap_or_default();
+            let available_width =
+                persistent_state.inner_size().width - persistent_state.content_size().width;
+            let max_scroll = (-available_width).max(0.0);
+            (max_scroll > 0.0).then_some(scroll / max_scroll)
+        } else {
+            None
+        };
+        let opposite_scroll_factor = scroll_factor.map(|scroll_factor| 1.0 - scroll_factor);
+
         let scroll_bar_leading_space_style = Style {
             width: Sizing::Grow,
             height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: Some(1.0),
+            flex_ratio: Some(scroll_factor.unwrap_or_default()),
             ..Default::default()
         };
-
         let scroll_bar_trailing_space_style = Style {
             width: Sizing::Grow,
             height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: Some(1.0),
+            flex_ratio: Some(opposite_scroll_factor.unwrap_or_default()),
             ..Default::default()
         };
 
         let scroll_bar_thumb_style = Style {
             width: Sizing::Grow,
             height: Sizing::Fixed(SCROLL_BAR_SIZE),
+            min_width: SCROLL_BAR_SIZE.into(),
             max_width: SCROLL_BAR_THUMB_SIZE.into(),
             flex_ratio: Some(1.0),
             allow_text_wrap: false.into(),
@@ -94,25 +105,51 @@ pub trait WidgetBuilder: GuiBuilder {
                 .result;
 
             // scroll bar
-            gui.insert_container_node(None, &scroll_bar_style, |mut gui| {
-                gui.button(
-                    "<",
-                    uid.concat(SCROLL_BAR_LEFT_BUTTON_UID),
-                    &scroll_bar_button_style,
-                );
-                gui.insert_node(None, &scroll_bar_leading_space_style);
-                gui.button(
-                    "::",
-                    uid.concat(SCROLL_BAR_THUMB_UID),
-                    &scroll_bar_thumb_style,
-                );
-                gui.insert_node(None, &scroll_bar_trailing_space_style);
-                gui.button(
-                    ">",
-                    uid.concat(SCROLL_BAR_RIGHT_BUTTON_UID),
-                    &scroll_bar_button_style,
-                );
-            });
+            if scroll_factor.is_some() || opposite_scroll_factor.is_some() {
+                gui.insert_container_node(None, &scroll_bar_style, |mut gui| {
+                    let mut scroll_delta = 0.0;
+
+                    if gui
+                        .button(
+                            "<",
+                            uid.concat(SCROLL_BAR_LEFT_BUTTON_UID),
+                            &scroll_bar_button_style,
+                        )
+                        .clicked
+                    {
+                        scroll_delta -= 10.0;
+                    }
+
+                    gui.insert_node(None, &scroll_bar_leading_space_style);
+                    gui.button(
+                        "::",
+                        uid.concat(SCROLL_BAR_THUMB_UID),
+                        &scroll_bar_thumb_style,
+                    );
+                    gui.insert_node(None, &scroll_bar_trailing_space_style);
+
+                    if gui
+                        .button(
+                            ">",
+                            uid.concat(SCROLL_BAR_RIGHT_BUTTON_UID),
+                            &scroll_bar_button_style,
+                        )
+                        .clicked
+                    {
+                        scroll_delta += 10.0;
+                    }
+
+                    let persistent_state = gui.get_persistent_state_mut(uid);
+                    let available_width =
+                        persistent_state.inner_size().width - persistent_state.content_size().width;
+                    let max_scroll = (-available_width).max(0.0);
+                    let scroll = persistent_state
+                        .horizontal_scroll
+                        .as_mut()
+                        .expect("scroll area is not scrollable");
+                    *scroll = (*scroll + scroll_delta).clamp(0.0, max_scroll);
+                });
+            }
 
             result
         })

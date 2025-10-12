@@ -552,12 +552,52 @@ impl Node {
             vertical_text_offset: 0.0,
         }
     }
+
+    fn clip_bounds(&self) -> (Position, Size) {
+        let clip_position = Position {
+            x: self.position.x + self.style.padding.left,
+            y: self.position.y + self.style.padding.top,
+        };
+
+        let clip_size = Size {
+            width: self.size.width - self.style.padding.left - self.style.padding.right,
+            height: self.size.height - self.style.padding.top - self.style.padding.bottom,
+        };
+
+        (clip_position, clip_size)
+    }
+}
+
+#[derive(Default)]
+struct ReadOnlyPersistentState {
+    hovered: bool,
+    inner_size: Size,
+    content_size: Size,
 }
 
 #[derive(Default)]
 pub struct PersistentState {
     pub horizontal_scroll: Option<Pixel>,
     pub vertical_scroll: Option<Pixel>,
+
+    read_only: ReadOnlyPersistentState,
+}
+
+impl PersistentState {
+    #[inline]
+    pub fn hovered(&self) -> bool {
+        self.read_only.hovered
+    }
+
+    #[inline]
+    pub fn inner_size(&self) -> Size {
+        self.read_only.inner_size
+    }
+
+    #[inline]
+    pub fn content_size(&self) -> Size {
+        self.read_only.content_size
+    }
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -575,7 +615,6 @@ pub struct ByorGui {
     root_style: RootStyle,
     prev_mouse_state: MouseState,
     mouse_state: MouseState,
-    hovered_node_uid: Option<Uid>,
 
     text_layout_context: TextLayoutContext<Brush>,
     font_context: FontContext,
@@ -584,6 +623,7 @@ pub struct ByorGui {
 #[derive(Debug, Clone, Copy)]
 pub struct NodeResponse<R> {
     pub hovered: bool,
+    pub pressed: bool,
     pub clicked: bool,
     pub result: R,
 }
@@ -671,26 +711,86 @@ impl ByorGui {
         self.mouse_state = mouse_state;
     }
 
-    fn find_hovered_element(&self, node_id: NodeId) -> Option<Uid> {
-        for &child_id in self.child_ids(node_id) {
-            if let Some(uid) = self.find_hovered_element(child_id) {
-                return Some(uid);
+    #[must_use]
+    fn populate_read_only_persistent_state(
+        &mut self,
+        node_id: NodeId,
+        mouse_in_parent_clip_bounds: bool,
+    ) -> Option<Uid> {
+        let mut hovered_node = None;
+
+        let node = &self.nodes[node_id];
+        let mouse_position = self.mouse_state.position;
+        let mouse_in_bounds = mouse_in_parent_clip_bounds
+            && (mouse_position.x >= node.position.x)
+            && (mouse_position.x <= node.position.x + node.size.width)
+            && (mouse_position.y >= node.position.y)
+            && (mouse_position.y <= node.position.y + node.size.height);
+
+        let (clip_position, clip_size) = node.clip_bounds();
+        let mouse_in_clip_bounds = mouse_in_bounds
+            && (mouse_position.x >= clip_position.x)
+            && (mouse_position.x <= clip_position.x + clip_size.width)
+            && (mouse_position.y >= clip_position.y)
+            && (mouse_position.y <= clip_position.y + clip_size.height);
+
+        // we have to use index-based iteration because of borrowing
+        let child_count = self.child_count(node_id);
+        for i in 0..child_count {
+            let child_id = self.child_ids(node_id)[i];
+            if let Some(uid) =
+                self.populate_read_only_persistent_state(child_id, mouse_in_clip_bounds)
+            {
+                assert!(hovered_node.is_none(), "multiple nodes hovered");
+                hovered_node = Some(uid);
             }
         }
 
         let node = &self.nodes[node_id];
         if let Some(uid) = node.uid {
-            let mouse_position = self.mouse_state.position;
-            if (mouse_position.x >= node.position.x)
-                && (mouse_position.x <= node.position.x + node.size.width)
-                && (mouse_position.y >= node.position.y)
-                && (mouse_position.y <= node.position.y + node.size.height)
+            let mut total_content_size = Size::default();
+            let mut max_content_size = Size::default();
+            for (_, child) in self.iter_children(node_id) {
+                total_content_size.width += child.size.width;
+                total_content_size.height += child.size.height;
+
+                max_content_size.width = max_content_size.width.max(child.size.width);
+                max_content_size.height = max_content_size.height.max(child.size.height);
+            }
+
+            let total_spacing =
+                (self.child_count(node_id).saturating_sub(1) as Pixel) * node.style.child_spacing;
+
+            if let Some(PersistentState {
+                read_only: state, ..
+            }) = self.persistent_state.get_mut(uid)
             {
-                return Some(uid);
+                state.hovered = if mouse_in_bounds && hovered_node.is_none() {
+                    hovered_node = Some(uid);
+                    true
+                } else {
+                    false
+                };
+
+                state.inner_size = Size {
+                    width: node.size.width - node.style.padding.left - node.style.padding.right,
+                    height: node.size.height - node.style.padding.top - node.style.padding.bottom,
+                };
+
+                state.content_size = match node.style.layout_direction {
+                    Direction::LeftToRight => Size {
+                        width: total_content_size.width + total_spacing,
+                        height: max_content_size.height,
+                    },
+                    Direction::TopToBottom => Size {
+                        width: max_content_size.width,
+                        height: total_content_size.height + total_spacing,
+                    },
+                };
             }
         }
 
-        None
+        hovered_node
     }
 
     pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
@@ -698,15 +798,12 @@ impl ByorGui {
         assert!(self.ancestor_stack.is_empty());
 
         self.layout(root_id);
-        self.hovered_node_uid = self.find_hovered_element(root_id);
+        let _ = self.populate_read_only_persistent_state(root_id, true);
         self.render(root_id, renderer)
     }
 
     fn update_persistent_state(&mut self, uid: Uid, style: &Style) {
-        let state = self
-            .persistent_state
-            .entry(uid)
-            .or_insert(PersistentState::default());
+        let state = self.get_persistent_state_mut(uid);
 
         if style.allow_horizontal_scoll {
             if state.horizontal_scroll.is_none() {
@@ -752,11 +849,16 @@ impl ByorGui {
 
     #[must_use]
     fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
-        let hovered = self.hovered_node_uid.zip(uid).is_some_and(|(a, b)| a == b);
-        let clicked = hovered && self.mouse_state.button1_pressed;
+        let hovered = uid
+            .and_then(|uid| self.get_persistent_state(uid))
+            .map(|persistent_state| persistent_state.hovered())
+            .unwrap_or_default();
+        let pressed = hovered && self.mouse_state.button1_pressed;
+        let clicked = pressed && !self.prev_mouse_state.button1_pressed;
 
         NodeResponse {
             hovered,
+            pressed,
             clicked,
             result,
         }

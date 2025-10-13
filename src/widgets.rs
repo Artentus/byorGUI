@@ -47,8 +47,8 @@ pub trait WidgetBuilder: GuiBuilder {
         };
 
         let scroll_bar_button_style = style! {
-            width: SCROLL_BAR_SIZE.into(),
-            height: SCROLL_BAR_SIZE.into(),
+            width: SCROLL_BAR_SIZE,
+            height: SCROLL_BAR_SIZE,
             text_wrap: false,
             horizontal_text_alignment: HorizontalTextAlignment::Center,
             vertical_text_alignment: VerticalTextAlignment::Center,
@@ -71,18 +71,18 @@ pub trait WidgetBuilder: GuiBuilder {
 
         let scroll_bar_leading_space_style = style! {
             width: Sizing::Grow,
-            height: SCROLL_BAR_SIZE.into(),
+            height: SCROLL_BAR_SIZE,
             flex_ratio: scroll_factor.unwrap_or_default(),
         };
         let scroll_bar_trailing_space_style = style! {
             width: Sizing::Grow,
-            height: SCROLL_BAR_SIZE.into(),
+            height: SCROLL_BAR_SIZE,
             flex_ratio: opposite_scroll_factor.unwrap_or_default(),
         };
 
         let scroll_bar_thumb_style = style! {
             width: Sizing::Grow,
-            height: SCROLL_BAR_SIZE.into(),
+            height: SCROLL_BAR_SIZE,
             min_width: SCROLL_BAR_SIZE,
             max_width: SCROLL_BAR_THUMB_SIZE,
             text_wrap: false,

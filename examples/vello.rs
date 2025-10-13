@@ -37,8 +37,8 @@ impl ExampleApp {
     fn new() -> Self {
         let mut gui = ByorGui::default();
         *gui.root_style_mut() = style! {
-            padding: 5.0.into(),
-            child_spacing: 5.0.into(),
+            padding: 5.0,
+            child_spacing: 5.0,
         };
 
         Self {
@@ -238,7 +238,7 @@ fn gui(gui: &mut ByorGui) {
     gui.insert_node(
         None,
         &style! {
-            width: 100.0.into(),
+            width: 100.0,
             height: Sizing::Grow,
         },
     );
@@ -247,20 +247,20 @@ fn gui(gui: &mut ByorGui) {
         const { Uid::new(b"scroll_view") },
         &style! {
             width: Sizing::Grow,
-            max_width: 600.0.into(),
+            max_width: 600.0,
             flex_ratio: 2.0,
-            padding: 5.0.into(),
+            padding: 5.0,
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,
-            child_spacing: 5.0.into(),
+            child_spacing: 5.0,
         },
         |mut gui| {
             for _ in 0..5 {
                 gui.insert_node(
                     None,
                     &style! {
-                        width: 100.0.into(),
-                        height: 100.0.into(),
+                        width: 100.0,
+                        height: 100.0,
                     },
                 );
             }
@@ -273,15 +273,15 @@ fn gui(gui: &mut ByorGui) {
             width: Sizing::Grow,
             height: Sizing::Grow,
             layout_direction: Direction::TopToBottom,
-            padding: 5.0.into(),
-            child_spacing: 5.0.into(),
+            padding: 5.0,
+            child_spacing: 5.0,
         },
         |mut gui| {
             gui.insert_node(
                 None,
                 &style! {
                     width: Sizing::Grow,
-                    height: 100.0.into(),
+                    height: 100.0,
                 },
             );
 
@@ -290,17 +290,17 @@ fn gui(gui: &mut ByorGui) {
                 &style! {
                     width: Sizing::Grow,
                     height: Sizing::Grow,
-                    padding: 5.0.into(),
+                    padding: 5.0,
                     layout_direction: Direction::TopToBottom,
                     child_alignment: Alignment::Center,
-                    child_spacing: 5.0.into(),
+                    child_spacing: 5.0,
                 },
                 |mut gui| {
                     gui.insert_node(
                         None,
                         &style! {
-                            width: 100.0.into(),
-                            height: 100.0.into(),
+                            width: 100.0,
+                            height: 100.0,
                             cross_axis_alignment: Alignment::Center,
                         },
                     );
@@ -309,8 +309,8 @@ fn gui(gui: &mut ByorGui) {
                         None,
                         &style! {
                             width: Sizing::Grow,
-                            height: 100.0.into(),
-                            padding: 5.0.into(),
+                            height: 100.0,
+                            padding: 5.0,
                             cross_axis_alignment: Alignment::Center,
                             horizontal_text_alignment: HorizontalTextAlignment::Center,
                             vertical_text_alignment: VerticalTextAlignment::Center,

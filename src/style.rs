@@ -462,7 +462,7 @@ macro_rules! __style_recursive {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Inherit); $($t)*)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: $value:expr, $($t:tt)*) => {
-        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value)); $($t)*)
+        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value.into())); $($t)*)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: %initial) => {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Initial);)
@@ -471,7 +471,7 @@ macro_rules! __style_recursive {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Inherit);)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: $value:expr) => {
-        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value));)
+        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value.into()));)
     };
     ($(($name:ident, $property:expr)),*;) => {
         $crate::style::Style {

@@ -40,7 +40,6 @@ pub trait WidgetBuilder: GuiBuilder {
             max_height: None,
             padding: Padding::default().into(),
             cross_axis_alignment: Alignment::default().into(),
-            allow_horizontal_scoll: true,
             ..computed_style.into_style()
         };
 
@@ -62,27 +61,31 @@ pub trait WidgetBuilder: GuiBuilder {
             ..Default::default()
         };
 
-        let scroll_factor = if let Some(persistent_state) = self.get_persistent_state(uid) {
-            let scroll = persistent_state.horizontal_scroll.unwrap_or_default();
+        let max_scroll = if let Some(previous_state) = self.get_previous_state(uid) {
             let available_width =
-                persistent_state.inner_size().width - persistent_state.content_size().width;
-            let max_scroll = (-available_width).max(0.0);
-            (max_scroll > 0.0).then_some(scroll / max_scroll)
+                previous_state.inner_size.width - previous_state.content_size.width;
+            (-available_width).max(0.0)
         } else {
-            None
+            0.0
         };
+
+        let persistent_state = self.get_persistent_state_mut(uid);
+        let scroll = persistent_state.horizontal_scroll.get_or_insert_default();
+        *scroll = (*scroll).min(max_scroll);
+
+        let scroll_factor = (max_scroll > 0.0).then_some(*scroll / max_scroll);
         let opposite_scroll_factor = scroll_factor.map(|scroll_factor| 1.0 - scroll_factor);
 
         let scroll_bar_leading_space_style = Style {
             width: Sizing::Grow,
             height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: Some(scroll_factor.unwrap_or_default()),
+            flex_ratio: scroll_factor,
             ..Default::default()
         };
         let scroll_bar_trailing_space_style = Style {
             width: Sizing::Grow,
             height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: Some(opposite_scroll_factor.unwrap_or_default()),
+            flex_ratio: opposite_scroll_factor,
             ..Default::default()
         };
 
@@ -140,13 +143,7 @@ pub trait WidgetBuilder: GuiBuilder {
                     }
 
                     let persistent_state = gui.get_persistent_state_mut(uid);
-                    let available_width =
-                        persistent_state.inner_size().width - persistent_state.content_size().width;
-                    let max_scroll = (-available_width).max(0.0);
-                    let scroll = persistent_state
-                        .horizontal_scroll
-                        .as_mut()
-                        .expect("scroll area is not scrollable");
+                    let scroll = persistent_state.horizontal_scroll.get_or_insert_default();
                     *scroll = (*scroll + scroll_delta).clamp(0.0, max_scroll);
                 });
             }

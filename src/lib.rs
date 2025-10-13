@@ -267,8 +267,6 @@ pub struct Style {
     pub max_width: Option<Pixel>,
     pub max_height: Option<Pixel>,
     pub flex_ratio: Option<f32>,
-    pub allow_horizontal_scoll: bool,
-    pub allow_vertical_scoll: bool,
 
     // inherited properties
     pub padding: Property<Padding>,
@@ -568,36 +566,33 @@ impl Node {
     }
 }
 
-#[derive(Default)]
-struct ReadOnlyPersistentState {
-    hovered: bool,
-    inner_size: Size,
-    content_size: Size,
-}
-
-#[derive(Default)]
 pub struct PersistentState {
     pub horizontal_scroll: Option<Pixel>,
     pub vertical_scroll: Option<Pixel>,
-
-    read_only: ReadOnlyPersistentState,
 }
 
 impl PersistentState {
-    #[inline]
-    pub fn hovered(&self) -> bool {
-        self.read_only.hovered
-    }
+    pub const DEFAULT: Self = Self {
+        horizontal_scroll: None,
+        vertical_scroll: None,
+    };
+}
 
+impl Default for PersistentState {
     #[inline]
-    pub fn inner_size(&self) -> Size {
-        self.read_only.inner_size
+    fn default() -> Self {
+        Self::DEFAULT
     }
+}
 
-    #[inline]
-    pub fn content_size(&self) -> Size {
-        self.read_only.content_size
-    }
+#[derive(Default)]
+pub struct PreviousState {
+    /// Keeps track of whether this state still needs to be stored
+    referenced: bool,
+
+    pub hovered: bool,
+    pub inner_size: Size,
+    pub content_size: Size,
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -611,6 +606,7 @@ pub struct ByorGui {
     ancestor_stack: Vec<NodeId>,
     text_layouts: SlotMap<TextLayoutId, TextLayout<Brush>>,
     persistent_state: IntMap<Uid, PersistentState>,
+    previous_state: IntMap<Uid, PreviousState>,
 
     root_style: RootStyle,
     prev_mouse_state: MouseState,
@@ -712,7 +708,7 @@ impl ByorGui {
     }
 
     #[must_use]
-    fn populate_read_only_persistent_state(
+    fn compute_previous_state(
         &mut self,
         node_id: NodeId,
         mouse_in_parent_clip_bounds: bool,
@@ -738,9 +734,7 @@ impl ByorGui {
         let child_count = self.child_count(node_id);
         for i in 0..child_count {
             let child_id = self.child_ids(node_id)[i];
-            if let Some(uid) =
-                self.populate_read_only_persistent_state(child_id, mouse_in_clip_bounds)
-            {
+            if let Some(uid) = self.compute_previous_state(child_id, mouse_in_clip_bounds) {
                 assert!(hovered_node.is_none(), "multiple nodes hovered");
                 hovered_node = Some(uid);
             }
@@ -761,36 +755,42 @@ impl ByorGui {
             let total_spacing =
                 (self.child_count(node_id).saturating_sub(1) as Pixel) * node.style.child_spacing;
 
-            if let Some(PersistentState {
-                read_only: state, ..
-            }) = self.persistent_state.get_mut(uid)
-            {
-                state.hovered = if mouse_in_bounds && hovered_node.is_none() {
-                    hovered_node = Some(uid);
-                    true
-                } else {
-                    false
-                };
+            let state = self.previous_state.entry(uid).or_default();
+            state.referenced = true; // this state is indeed still referenced
 
-                state.inner_size = Size {
-                    width: node.size.width - node.style.padding.left - node.style.padding.right,
-                    height: node.size.height - node.style.padding.top - node.style.padding.bottom,
-                };
+            state.hovered = if mouse_in_bounds && hovered_node.is_none() {
+                hovered_node = Some(uid);
+                true
+            } else {
+                false
+            };
 
-                state.content_size = match node.style.layout_direction {
-                    Direction::LeftToRight => Size {
-                        width: total_content_size.width + total_spacing,
-                        height: max_content_size.height,
-                    },
-                    Direction::TopToBottom => Size {
-                        width: max_content_size.width,
-                        height: total_content_size.height + total_spacing,
-                    },
-                };
-            }
+            state.inner_size = Size {
+                width: node.size.width - node.style.padding.left - node.style.padding.right,
+                height: node.size.height - node.style.padding.top - node.style.padding.bottom,
+            };
+
+            state.content_size = match node.style.layout_direction {
+                Direction::LeftToRight => Size {
+                    width: total_content_size.width + total_spacing,
+                    height: max_content_size.height,
+                },
+                Direction::TopToBottom => Size {
+                    width: max_content_size.width,
+                    height: total_content_size.height + total_spacing,
+                },
+            };
         }
 
         hovered_node
+    }
+
+    fn update_previous_states(&mut self, root_id: NodeId) {
+        self.previous_state
+            .values_mut()
+            .for_each(|state| state.referenced = false);
+        let _ = self.compute_previous_state(root_id, true);
+        self.previous_state.retain(|_, state| state.referenced);
     }
 
     pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
@@ -798,28 +798,8 @@ impl ByorGui {
         assert!(self.ancestor_stack.is_empty());
 
         self.layout(root_id);
-        let _ = self.populate_read_only_persistent_state(root_id, true);
+        self.update_previous_states(root_id);
         self.render(root_id, renderer)
-    }
-
-    fn update_persistent_state(&mut self, uid: Uid, style: &Style) {
-        let state = self.get_persistent_state_mut(uid);
-
-        if style.allow_horizontal_scoll {
-            if state.horizontal_scroll.is_none() {
-                state.horizontal_scroll = Some(0.0);
-            }
-        } else {
-            state.horizontal_scroll = None;
-        }
-
-        if style.allow_vertical_scoll {
-            if state.vertical_scroll.is_none() {
-                state.vertical_scroll = Some(0.0);
-            }
-        } else {
-            state.vertical_scroll = None;
-        }
     }
 
     #[must_use]
@@ -841,7 +821,6 @@ impl ByorGui {
 
         if let Some(uid) = uid {
             assert!(self.uid_map.insert_checked(uid, node_id), "duplicate UID");
-            self.update_persistent_state(uid, style);
         }
 
         node_id
@@ -850,8 +829,8 @@ impl ByorGui {
     #[must_use]
     fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
         let hovered = uid
-            .and_then(|uid| self.get_persistent_state(uid))
-            .map(|persistent_state| persistent_state.hovered())
+            .and_then(|uid| self.get_previous_state(uid))
+            .map(|previous_state| previous_state.hovered)
             .unwrap_or_default();
         let pressed = hovered && self.mouse_state.button1_pressed;
         let clicked = pressed && !self.prev_mouse_state.button1_pressed;
@@ -907,9 +886,11 @@ pub trait GuiBuilder {
 
     fn parent_style(&self) -> &ComputedStyle;
 
-    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState>;
+    fn get_persistent_state(&self, uid: Uid) -> &PersistentState;
 
     fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState;
+
+    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState>;
 }
 
 impl GuiBuilder for ByorGui {
@@ -955,15 +936,21 @@ impl GuiBuilder for ByorGui {
         &self.nodes[root_id].style
     }
 
-    #[inline]
-    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState> {
-        self.persistent_state.get(uid)
+    fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
+        self.persistent_state
+            .get(uid)
+            .unwrap_or(&PersistentState::DEFAULT)
     }
 
     fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
         self.persistent_state
             .entry(uid)
-            .or_insert(PersistentState::default())
+            .or_insert(PersistentState::DEFAULT)
+    }
+
+    #[inline]
+    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+        self.previous_state.get(uid)
     }
 }
 
@@ -998,13 +985,18 @@ impl GuiBuilder for ByorGuiContext<'_> {
     }
 
     #[inline]
-    fn get_persistent_state(&self, uid: Uid) -> Option<&PersistentState> {
+    fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
         self.gui.get_persistent_state(uid)
     }
 
     #[inline]
     fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
         self.gui.get_persistent_state_mut(uid)
+    }
+
+    #[inline]
+    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+        self.gui.get_previous_state(uid)
     }
 }
 

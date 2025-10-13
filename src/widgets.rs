@@ -23,42 +23,35 @@ pub trait WidgetBuilder: GuiBuilder {
         let parent_style = self.parent_style();
         let computed_style = style.compute(parent_style);
 
-        let scroll_view_style = Style {
-            flex_ratio: None,
-            layout_direction: Direction::TopToBottom.into(),
-            child_alignment: Alignment::default().into(),
-            child_spacing: 2.0.into(),
-            ..style.clone()
-        };
+        let scroll_view_style = style
+            .clone()
+            .with_flex_ratio(1.0)
+            .with_layout_direction(Direction::TopToBottom)
+            .with_child_alignment(Alignment::default())
+            .with_child_spacing(2.0);
 
-        let scroll_container_style = Style {
+        let scroll_container_style = computed_style
+            .into_style()
+            .with_width(Sizing::Grow)
+            .with_height(Sizing::Grow)
+            .with_initial_min_width()
+            .with_initial_min_height()
+            .with_initial_max_width()
+            .with_initial_max_height()
+            .with_padding(Padding::ZERO)
+            .with_cross_axis_alignment(Alignment::Start);
+
+        let scroll_bar_style = style! {
             width: Sizing::Grow,
-            height: Sizing::Grow,
-            min_width: None,
-            min_height: None,
-            max_width: None,
-            max_height: None,
-            padding: Padding::default().into(),
-            cross_axis_alignment: Alignment::default().into(),
-            ..computed_style.into_style()
+            child_spacing: 1.0,
         };
 
-        let scroll_bar_style = Style {
-            width: Sizing::Grow,
-            height: Sizing::FitContent,
-            padding: Padding::default().into(),
-            child_spacing: 1.0.into(),
-            layout_direction: Direction::LeftToRight.into(),
-            ..Default::default()
-        };
-
-        let scroll_bar_button_style = Style {
-            width: Sizing::Fixed(SCROLL_BAR_SIZE),
-            height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            allow_text_wrap: false.into(),
-            horizontal_text_alignment: HorizontalTextAlignment::Center.into(),
-            vertical_text_alignment: VerticalTextAlignment::Center.into(),
-            ..Default::default()
+        let scroll_bar_button_style = style! {
+            width: SCROLL_BAR_SIZE.into(),
+            height: SCROLL_BAR_SIZE.into(),
+            text_wrap: false,
+            horizontal_text_alignment: HorizontalTextAlignment::Center,
+            vertical_text_alignment: VerticalTextAlignment::Center,
         };
 
         let max_scroll = if let Some(previous_state) = self.get_previous_state(uid) {
@@ -76,29 +69,25 @@ pub trait WidgetBuilder: GuiBuilder {
         let scroll_factor = (max_scroll > 0.0).then_some(*scroll / max_scroll);
         let opposite_scroll_factor = scroll_factor.map(|scroll_factor| 1.0 - scroll_factor);
 
-        let scroll_bar_leading_space_style = Style {
+        let scroll_bar_leading_space_style = style! {
             width: Sizing::Grow,
-            height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: scroll_factor,
-            ..Default::default()
+            height: SCROLL_BAR_SIZE.into(),
+            flex_ratio: scroll_factor.unwrap_or_default(),
         };
-        let scroll_bar_trailing_space_style = Style {
+        let scroll_bar_trailing_space_style = style! {
             width: Sizing::Grow,
-            height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            flex_ratio: opposite_scroll_factor,
-            ..Default::default()
+            height: SCROLL_BAR_SIZE.into(),
+            flex_ratio: opposite_scroll_factor.unwrap_or_default(),
         };
 
-        let scroll_bar_thumb_style = Style {
+        let scroll_bar_thumb_style = style! {
             width: Sizing::Grow,
-            height: Sizing::Fixed(SCROLL_BAR_SIZE),
-            min_width: SCROLL_BAR_SIZE.into(),
-            max_width: SCROLL_BAR_THUMB_SIZE.into(),
-            flex_ratio: Some(1.0),
-            allow_text_wrap: false.into(),
-            horizontal_text_alignment: HorizontalTextAlignment::Center.into(),
-            vertical_text_alignment: VerticalTextAlignment::Center.into(),
-            ..Default::default()
+            height: SCROLL_BAR_SIZE.into(),
+            min_width: SCROLL_BAR_SIZE,
+            max_width: SCROLL_BAR_THUMB_SIZE,
+            text_wrap: false,
+            horizontal_text_alignment: HorizontalTextAlignment::Center,
+            vertical_text_alignment: VerticalTextAlignment::Center,
         };
 
         self.insert_container_node(None, &scroll_view_style, |mut gui| {

@@ -90,6 +90,22 @@ impl ComputedStyle {
             Axis::Y => self.height,
         }
     }
+
+    #[inline]
+    fn min_size_along_axis(&self, axis: Axis) -> Pixel {
+        match axis {
+            Axis::X => self.min_width,
+            Axis::Y => self.min_height,
+        }
+    }
+
+    #[inline]
+    fn max_size_along_axis(&self, axis: Axis) -> Pixel {
+        match axis {
+            Axis::X => self.max_width,
+            Axis::Y => self.max_height,
+        }
+    }
 }
 
 impl PersistentState {
@@ -102,13 +118,13 @@ impl PersistentState {
     }
 }
 
-fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Brush>) {
+fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
     use parley::AlignmentOptions as TextAlignmentOptions;
 
     let horizontal_padding = node.style.padding.left + node.style.padding.right;
     let wrap_width = node.size.width - horizontal_padding;
 
-    text_layout.break_all_lines(node.style.allow_text_wrap.then_some(wrap_width));
+    text_layout.break_all_lines(node.style.text_wrap.then_some(wrap_width));
     text_layout.align(
         Some(wrap_width),
         node.style.horizontal_text_alignment,
@@ -131,8 +147,11 @@ impl ByorGui {
         }
 
         let node = &mut self.nodes[node_id];
-        let min_size = node.min_size.along_axis(axis);
-        let max_size = node.max_size.along_axis(axis);
+        let min_size = node.style.min_size_along_axis(axis);
+        let max_size = node.style.max_size_along_axis(axis);
+
+        *node.min_size.along_axis_mut(axis) = min_size;
+        *node.max_size.along_axis_mut(axis) = max_size;
 
         // fixed sizing
         if let Sizing::Fixed(fixed_size) = node.style.size_along_axis(axis) {
@@ -173,7 +192,7 @@ impl ByorGui {
                         .ceil()
                         .clamp(min_width, max_size);
 
-                    node.min_size.width = if node.style.allow_text_wrap {
+                    node.min_size.width = if node.style.text_wrap {
                         min_width
                     } else {
                         width
@@ -261,14 +280,16 @@ impl ByorGui {
                 (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
 
             let mut total_target_size = parent_size - parent_padding - total_spacing;
-
             let mut available_space = total_target_size;
             let mut nodes_to_resize = NodeIdVec::new();
             let mut flex_ratio_sum = 0.0;
             for (node_id, node) in self.iter_children(parent_id) {
                 available_space -= node.size.along_axis(axis);
 
-                if node.min_size != node.max_size {
+                // filter out nodes that cannot be resized
+                if node.min_size.along_axis(axis) == node.max_size.along_axis(axis) {
+                    total_target_size -= node.size.along_axis(axis);
+                } else {
                     nodes_to_resize.push(node_id);
                     flex_ratio_sum += node.style.flex_ratio;
                 }
@@ -293,7 +314,11 @@ impl ByorGui {
                         let max_size = node.max_size.along_axis(axis);
 
                         let flex_ratio = node.style.flex_ratio;
-                        let flex_factor = flex_ratio / flex_ratio_sum;
+                        let flex_factor = if flex_ratio_sum > 0.0 {
+                            flex_ratio / flex_ratio_sum
+                        } else {
+                            0.0
+                        };
                         let target_size = total_target_size * flex_factor;
 
                         if (target_size <= min_size) || (target_size >= max_size) {
@@ -318,7 +343,11 @@ impl ByorGui {
                     let node = &mut self.nodes[node_id];
 
                     let flex_ratio = node.style.flex_ratio;
-                    let flex_factor = flex_ratio / flex_ratio_sum;
+                    let flex_factor = if flex_ratio_sum > 0.0 {
+                        flex_ratio / flex_ratio_sum
+                    } else {
+                        0.0
+                    };
                     let target_size = total_target_size * flex_factor;
                     *node.size.along_axis_mut(axis) = target_size;
                 }

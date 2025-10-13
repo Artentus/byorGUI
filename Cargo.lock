@@ -180,7 +180,7 @@ name = "byor_gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "color",
+ "byor_gui_procmacro",
  "intmap",
  "parley",
  "pollster",
@@ -189,6 +189,15 @@ dependencies = [
  "smallvec",
  "vello",
  "winit",
+]
+
+[[package]]
+name = "byor_gui_procmacro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

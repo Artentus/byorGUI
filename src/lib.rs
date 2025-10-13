@@ -1,8 +1,8 @@
 mod layout;
 pub mod rendering;
+pub mod style;
 pub mod widgets;
 
-use color::{AlphaColor, Srgb};
 use intmap::{IntKey, IntMap};
 use parley::FontContext;
 use parley::LayoutContext as TextLayoutContext;
@@ -10,9 +10,7 @@ use parley::layout::Layout as TextLayout;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 use std::ops::Deref;
-
-pub use parley::Alignment as HorizontalTextAlignment;
-pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
+use style::*;
 
 pub type Pixel = f32;
 
@@ -75,377 +73,12 @@ impl From<[Pixel; 2]> for Size {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum Sizing {
-    #[default]
-    FitContent,
-    Grow,
-    Fixed(Pixel),
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Padding {
-    pub left: Pixel,
-    pub right: Pixel,
-    pub top: Pixel,
-    pub bottom: Pixel,
-}
-
-impl From<Pixel> for Padding {
-    #[inline]
-    fn from(value: Pixel) -> Self {
-        Self {
-            left: value,
-            right: value,
-            top: value,
-            bottom: value,
-        }
-    }
-}
-
-impl From<(Pixel, Pixel)> for Padding {
-    #[inline]
-    fn from(value: (Pixel, Pixel)) -> Self {
-        Self {
-            left: value.0,
-            right: value.0,
-            top: value.1,
-            bottom: value.1,
-        }
-    }
-}
-
-impl From<(Pixel, Pixel, Pixel, Pixel)> for Padding {
-    #[inline]
-    fn from(value: (Pixel, Pixel, Pixel, Pixel)) -> Self {
-        Self {
-            left: value.0,
-            right: value.1,
-            top: value.2,
-            bottom: value.3,
-        }
-    }
-}
-
-impl From<[Pixel; 2]> for Padding {
-    #[inline]
-    fn from(value: [Pixel; 2]) -> Self {
-        Self {
-            left: value[0],
-            right: value[0],
-            top: value[1],
-            bottom: value[1],
-        }
-    }
-}
-
-impl From<[Pixel; 4]> for Padding {
-    #[inline]
-    fn from(value: [Pixel; 4]) -> Self {
-        Self {
-            left: value[0],
-            right: value[1],
-            top: value[2],
-            bottom: value[3],
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Direction {
-    #[default]
-    LeftToRight,
-    TopToBottom,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Alignment {
-    #[default]
-    Start,
-    Center,
-    End,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum VerticalTextAlignment {
-    #[default]
-    Top,
-    Center,
-    Bottom,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub enum Brush {
-    #[default]
-    None,
-    Solid(AlphaColor<Srgb>),
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MouseState {
     pub position: Position,
     pub button1_pressed: bool,
     pub button2_pressed: bool,
     pub button3_pressed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Property<T> {
-    Inherit,
-    Override(T),
-}
-
-impl<T> Default for Property<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::Inherit
-    }
-}
-
-impl<T> Property<T> {
-    #[inline]
-    pub fn unwrap_or(self, default: T) -> T {
-        match self {
-            Self::Inherit => default,
-            Self::Override(value) => value,
-        }
-    }
-
-    #[inline]
-    pub fn unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
-        match self {
-            Self::Inherit => f(),
-            Self::Override(value) => value,
-        }
-    }
-}
-
-impl<T: Clone> Property<&T> {
-    #[inline]
-    pub fn cloned(self) -> Property<T> {
-        match self {
-            Self::Inherit => Property::Inherit,
-            Self::Override(value) => Property::Override(value.clone()),
-        }
-    }
-}
-
-impl<T: Copy> Property<&T> {
-    #[inline]
-    pub fn copied(self) -> Property<T> {
-        match self {
-            Self::Inherit => Property::Inherit,
-            Self::Override(value) => Property::Override(*value),
-        }
-    }
-}
-
-impl<T> From<T> for Property<T> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self::Override(value)
-    }
-}
-
-impl<T> From<Option<T>> for Property<T> {
-    #[inline]
-    fn from(value: Option<T>) -> Self {
-        match value {
-            None => Self::Inherit,
-            Some(value) => Self::Override(value),
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Style {
-    // non-inherited properties
-    pub width: Sizing,
-    pub height: Sizing,
-    pub min_width: Option<Pixel>,
-    pub min_height: Option<Pixel>,
-    pub max_width: Option<Pixel>,
-    pub max_height: Option<Pixel>,
-    pub flex_ratio: Option<f32>,
-
-    // inherited properties
-    pub padding: Property<Padding>,
-    pub child_spacing: Property<Pixel>,
-    pub layout_direction: Property<Direction>,
-    pub child_alignment: Property<Alignment>,
-    pub cross_axis_alignment: Property<Alignment>,
-    pub background: Property<Brush>,
-    pub foreground: Property<Brush>,
-    pub font: Property<FontStack<'static>>,
-    pub font_size: Property<Pixel>,
-    pub font_weight: Property<FontWeight>,
-    pub font_width: Property<FontWidth>,
-    pub text_underline: Property<bool>,
-    pub text_strikethrough: Property<bool>,
-    pub allow_text_wrap: Property<bool>,
-    pub horizontal_text_alignment: Property<HorizontalTextAlignment>,
-    pub vertical_text_alignment: Property<VerticalTextAlignment>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RootStyle {
-    pub padding: Padding,
-    pub child_spacing: Pixel,
-    pub layout_direction: Direction,
-    pub child_alignment: Alignment,
-    pub cross_axis_alignment: Alignment,
-    pub background: Brush,
-    pub foreground: Brush,
-    pub font: FontStack<'static>,
-    pub font_size: Pixel,
-    pub font_weight: FontWeight,
-    pub font_width: FontWidth,
-    pub text_underline: bool,
-    pub text_strikethrough: bool,
-    pub allow_text_wrap: bool,
-    pub horizontal_text_alignment: HorizontalTextAlignment,
-    pub vertical_text_alignment: VerticalTextAlignment,
-}
-
-impl Default for RootStyle {
-    fn default() -> Self {
-        Self {
-            padding: Padding::default(),
-            child_spacing: 0.0,
-            layout_direction: Direction::default(),
-            child_alignment: Alignment::default(),
-            cross_axis_alignment: Alignment::default(),
-            background: Brush::Solid(AlphaColor::BLACK),
-            foreground: Brush::Solid(AlphaColor::WHITE),
-            font: FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
-            font_size: 16.0,
-            font_weight: FontWeight::NORMAL,
-            font_width: FontWidth::NORMAL,
-            text_underline: false,
-            text_strikethrough: false,
-            allow_text_wrap: true,
-            horizontal_text_alignment: HorizontalTextAlignment::default(),
-            vertical_text_alignment: VerticalTextAlignment::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ComputedStyle {
-    pub width: Sizing,
-    pub height: Sizing,
-    pub flex_ratio: f32,
-
-    pub padding: Padding,
-    pub child_spacing: Pixel,
-    pub layout_direction: Direction,
-    pub child_alignment: Alignment,
-    pub cross_axis_alignment: Alignment,
-    pub background: Brush,
-    pub foreground: Brush,
-    pub font: FontStack<'static>,
-    pub font_size: Pixel,
-    pub font_weight: FontWeight,
-    pub font_width: FontWidth,
-    pub text_underline: bool,
-    pub text_strikethrough: bool,
-    pub allow_text_wrap: bool,
-    pub horizontal_text_alignment: HorizontalTextAlignment,
-    pub vertical_text_alignment: VerticalTextAlignment,
-}
-
-impl ComputedStyle {
-    fn from_root_style(style: &RootStyle, screen_size: Size) -> Self {
-        Self {
-            width: Sizing::Fixed(screen_size.width),
-            height: Sizing::Fixed(screen_size.height),
-            flex_ratio: 1.0,
-
-            padding: style.padding,
-            child_spacing: style.child_spacing,
-            layout_direction: style.layout_direction,
-            child_alignment: style.child_alignment,
-            cross_axis_alignment: style.cross_axis_alignment,
-            background: style.background.clone(),
-            foreground: style.foreground.clone(),
-            font: style.font.clone(),
-            font_size: style.font_size,
-            font_weight: style.font_weight,
-            font_width: style.font_width,
-            text_underline: style.text_underline,
-            text_strikethrough: style.text_strikethrough,
-            allow_text_wrap: style.allow_text_wrap,
-            horizontal_text_alignment: style.horizontal_text_alignment,
-            vertical_text_alignment: style.vertical_text_alignment,
-        }
-    }
-
-    pub fn into_style(self) -> Style {
-        Style {
-            width: self.width,
-            height: self.height,
-            flex_ratio: Some(self.flex_ratio),
-
-            padding: Property::Override(self.padding),
-            child_spacing: Property::Override(self.child_spacing),
-            layout_direction: Property::Override(self.layout_direction),
-            child_alignment: Property::Override(self.child_alignment),
-            cross_axis_alignment: Property::Override(self.cross_axis_alignment),
-            background: Property::Override(self.background),
-            foreground: Property::Override(self.foreground),
-            font: Property::Override(self.font),
-            font_size: Property::Override(self.font_size),
-            font_weight: Property::Override(self.font_weight),
-            font_width: Property::Override(self.font_width),
-            text_underline: Property::Override(self.text_underline),
-            text_strikethrough: Property::Override(self.text_strikethrough),
-            allow_text_wrap: Property::Override(self.allow_text_wrap),
-            horizontal_text_alignment: Property::Override(self.horizontal_text_alignment),
-            vertical_text_alignment: Property::Override(self.vertical_text_alignment),
-
-            ..Default::default()
-        }
-    }
-}
-
-impl Style {
-    #[must_use]
-    pub fn compute(&self, base: &ComputedStyle) -> ComputedStyle {
-        ComputedStyle {
-            width: self.width,
-            height: self.height,
-            flex_ratio: self.flex_ratio.unwrap_or(1.0),
-
-            padding: self.padding.unwrap_or(base.padding),
-            child_spacing: self.child_spacing.unwrap_or(base.child_spacing),
-            layout_direction: self.layout_direction.unwrap_or(base.layout_direction),
-            child_alignment: self.child_alignment.unwrap_or(base.child_alignment),
-            cross_axis_alignment: self
-                .cross_axis_alignment
-                .unwrap_or(base.cross_axis_alignment),
-            background: self
-                .background
-                .clone()
-                .unwrap_or_else(|| base.background.clone()),
-            foreground: self
-                .foreground
-                .clone()
-                .unwrap_or_else(|| base.foreground.clone()),
-            font: self.font.clone().unwrap_or_else(|| base.font.clone()),
-            font_size: self.font_size.unwrap_or(base.font_size),
-            font_weight: self.font_weight.unwrap_or(base.font_weight),
-            font_width: self.font_width.unwrap_or(base.font_width),
-            text_underline: self.text_underline.unwrap_or(base.text_underline),
-            text_strikethrough: self.text_strikethrough.unwrap_or(base.text_strikethrough),
-            allow_text_wrap: self.allow_text_wrap.unwrap_or(base.allow_text_wrap),
-            horizontal_text_alignment: self
-                .horizontal_text_alignment
-                .unwrap_or(base.horizontal_text_alignment),
-            vertical_text_alignment: self
-                .vertical_text_alignment
-                .unwrap_or(base.vertical_text_alignment),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -513,15 +146,13 @@ struct Node {
 }
 
 impl Node {
-    fn new_root(style: &RootStyle, screen_size: Size) -> Self {
-        let style = ComputedStyle::from_root_style(style, screen_size);
-
+    fn new_root(style: &Style, screen_size: Size) -> Self {
         Node {
             uid: None,
-            style,
+            style: style.compute_root(screen_size),
             text_layout: None,
-            min_size: screen_size,
-            max_size: screen_size,
+            min_size: Size::default(),
+            max_size: Size::default(),
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
@@ -529,22 +160,12 @@ impl Node {
     }
 
     fn new(uid: Option<Uid>, style: &Style, parent_style: &ComputedStyle) -> Self {
-        let min_size = Size {
-            width: style.min_width.unwrap_or(0.0),
-            height: style.min_height.unwrap_or(0.0),
-        };
-        let max_size = Size {
-            width: style.max_width.unwrap_or(Pixel::MAX),
-            height: style.max_height.unwrap_or(Pixel::MAX),
-        };
-        let style = style.compute(parent_style);
-
         Self {
             uid,
-            style,
+            style: style.compute(parent_style),
             text_layout: None,
-            min_size,
-            max_size,
+            min_size: Size::default(),
+            max_size: Size::default(),
             size: Size::default(),
             position: Position::default(),
             vertical_text_offset: 0.0,
@@ -604,15 +225,15 @@ pub struct ByorGui {
     children: SecondaryMap<NodeId, NodeIdVec>,
     uid_map: IntMap<Uid, NodeId>,
     ancestor_stack: Vec<NodeId>,
-    text_layouts: SlotMap<TextLayoutId, TextLayout<Brush>>,
+    text_layouts: SlotMap<TextLayoutId, TextLayout<Color>>,
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
 
-    root_style: RootStyle,
+    root_style: Style,
     prev_mouse_state: MouseState,
     mouse_state: MouseState,
 
-    text_layout_context: TextLayoutContext<Brush>,
+    text_layout_context: TextLayoutContext<Color>,
     font_context: FontContext,
 }
 
@@ -648,13 +269,13 @@ impl ChildMutIter<'_> {
 impl ByorGui {
     #[must_use]
     #[inline]
-    pub fn root_style(&self) -> &RootStyle {
+    pub fn root_style(&self) -> &Style {
         &self.root_style
     }
 
     #[must_use]
     #[inline]
-    pub fn root_style_mut(&mut self) -> &mut RootStyle {
+    pub fn root_style_mut(&mut self) -> &mut Style {
         &mut self.root_style
     }
 
@@ -851,11 +472,11 @@ impl ByorGui {
                 .ranged_builder(&mut self.font_context, text, 1.0, true);
 
         let style = &self.nodes[node_id].style;
-        builder.push_default(StyleProperty::Brush(style.foreground.clone()));
+        builder.push_default(StyleProperty::Brush(style.text_color));
         builder.push_default(StyleProperty::FontStack(style.font.clone()));
         builder.push_default(StyleProperty::FontSize(style.font_size));
         builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
-        builder.push_default(StyleProperty::FontWeight(style.font_weight));
+        builder.push_default(StyleProperty::FontWeight(style.font_weight.into()));
         builder.push_default(StyleProperty::FontWidth(style.font_width));
         builder.push_default(StyleProperty::Underline(style.text_underline));
         builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));

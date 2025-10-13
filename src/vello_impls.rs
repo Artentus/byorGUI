@@ -1,6 +1,7 @@
 use crate::rendering::*;
 use crate::*;
 use vello::kurbo::{self, Affine, Line, Rect, Stroke};
+use vello::peniko::color::{AlphaColor, Srgb};
 use vello::peniko::{self, Fill};
 
 impl From<Position> for kurbo::Point {
@@ -43,6 +44,13 @@ impl From<Size> for kurbo::Vec2 {
     }
 }
 
+impl From<Color> for AlphaColor<Srgb> {
+    #[inline]
+    fn from(value: Color) -> Self {
+        Self::from_rgba8(value.r, value.g, value.b, value.a)
+    }
+}
+
 impl Renderer for vello::Scene {
     type Error = std::convert::Infallible;
 
@@ -65,13 +73,10 @@ impl Renderer for vello::Scene {
         size: Size,
         corner_radius: f32,
         stroke_width: f32,
-        brush: Brush,
+        color: Color,
     ) -> Result<(), Self::Error> {
         let rect = Rect::from_origin_size(position, size);
-        let brush = match brush {
-            Brush::None => return Ok(()),
-            Brush::Solid(color) => peniko::Brush::Solid(color),
-        };
+        let brush = peniko::Brush::Solid(color.into());
 
         if corner_radius == 0.0 {
             self.stroke(
@@ -99,13 +104,10 @@ impl Renderer for vello::Scene {
         position: Position,
         size: Size,
         corner_radius: f32,
-        brush: Brush,
+        color: Color,
     ) -> Result<(), Self::Error> {
         let rect = Rect::from_origin_size(position, size);
-        let brush = match brush {
-            Brush::None => return Ok(()),
-            Brush::Solid(color) => peniko::Brush::Solid(color),
-        };
+        let brush = peniko::Brush::Solid(color.into());
 
         if corner_radius == 0.0 {
             self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &rect);
@@ -124,44 +126,36 @@ impl Renderer for vello::Scene {
 
     fn draw_text(
         &mut self,
-        text: GlyphRun<'_, Brush>,
+        text: GlyphRun<'_, Color>,
         position: Position,
     ) -> Result<(), Self::Error> {
         let style = text.style();
         let transform = Affine::translate(position);
 
-        'draw_underline: {
-            if let Some(underline) = &style.underline {
-                let brush = match &underline.brush {
-                    Brush::None => break 'draw_underline,
-                    &Brush::Solid(color) => peniko::Brush::Solid(color),
-                };
+        if let Some(underline) = &style.underline {
+            let brush = peniko::Brush::Solid(underline.brush.into());
 
-                let run_metrics = text.run().metrics();
-                let offset = match underline.offset {
-                    Some(offset) => offset,
-                    None => run_metrics.underline_offset,
-                };
-                let width = match underline.size {
-                    Some(size) => size,
-                    None => run_metrics.underline_size,
-                };
+            let run_metrics = text.run().metrics();
+            let offset = match underline.offset {
+                Some(offset) => offset,
+                None => run_metrics.underline_offset,
+            };
+            let width = match underline.size {
+                Some(size) => size,
+                None => run_metrics.underline_size,
+            };
 
-                let y = text.baseline() - offset + width / 2.0;
+            let y = text.baseline() - offset + width / 2.0;
 
-                let line = Line::new(
-                    (text.offset() as f64, y as f64),
-                    ((text.offset() + text.advance()) as f64, y as f64),
-                );
-                self.stroke(&Stroke::new(width.into()), transform, brush, None, &line);
-            }
+            let line = Line::new(
+                (text.offset() as f64, y as f64),
+                ((text.offset() + text.advance()) as f64, y as f64),
+            );
+            self.stroke(&Stroke::new(width.into()), transform, brush, None, &line);
         }
 
-        'draw_glyphs: {
-            let brush = match &style.brush {
-                Brush::None => break 'draw_glyphs,
-                &Brush::Solid(color) => peniko::Brush::Solid(color),
-            };
+        {
+            let brush = peniko::Brush::Solid(style.brush.into());
 
             let mut x = text.offset();
             let y = text.baseline();
@@ -195,31 +189,26 @@ impl Renderer for vello::Scene {
                 );
         }
 
-        'draw_strikethrough: {
-            if let Some(strikethrough) = &style.strikethrough {
-                let brush = match &strikethrough.brush {
-                    Brush::None => break 'draw_strikethrough,
-                    &Brush::Solid(color) => peniko::Brush::Solid(color),
-                };
+        if let Some(strikethrough) = &style.strikethrough {
+            let brush = peniko::Brush::Solid(strikethrough.brush.into());
 
-                let run_metrics = text.run().metrics();
-                let offset = match strikethrough.offset {
-                    Some(offset) => offset,
-                    None => run_metrics.strikethrough_offset,
-                };
-                let width = match strikethrough.size {
-                    Some(size) => size,
-                    None => run_metrics.strikethrough_size,
-                };
+            let run_metrics = text.run().metrics();
+            let offset = match strikethrough.offset {
+                Some(offset) => offset,
+                None => run_metrics.strikethrough_offset,
+            };
+            let width = match strikethrough.size {
+                Some(size) => size,
+                None => run_metrics.strikethrough_size,
+            };
 
-                let y = text.baseline() - offset + run_metrics.strikethrough_size / 2.0;
+            let y = text.baseline() - offset + run_metrics.strikethrough_size / 2.0;
 
-                let line = Line::new(
-                    (text.offset() as f64, y as f64),
-                    ((text.offset() + text.advance()) as f64, y as f64),
-                );
-                self.stroke(&Stroke::new(width.into()), transform, brush, None, &line);
-            }
+            let line = Line::new(
+                (text.offset() as f64, y as f64),
+                ((text.offset() + text.advance()) as f64, y as f64),
+            );
+            self.stroke(&Stroke::new(width.into()), transform, brush, None, &line);
         }
 
         Ok(())

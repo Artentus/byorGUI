@@ -1,7 +1,7 @@
 use anyhow::{Result, format_err};
+use byor_gui::style::*;
 use byor_gui::widgets::*;
 use byor_gui::*;
-use color::AlphaColor;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{Renderer, RendererOptions, Scene};
@@ -36,9 +36,10 @@ struct ExampleApp {
 impl ExampleApp {
     fn new() -> Self {
         let mut gui = ByorGui::default();
-        gui.root_style_mut().padding = 5.0.into();
-        gui.root_style_mut().child_spacing = 5.0.into();
-        gui.root_style_mut().foreground = Brush::Solid(AlphaColor::BLACK);
+        *gui.root_style_mut() = style! {
+            padding: 5.0.into(),
+            child_spacing: 5.0.into(),
+        };
 
         Self {
             context: RenderContext::new(),
@@ -234,37 +235,33 @@ impl winit::application::ApplicationHandler for ExampleApp {
 }
 
 fn gui(gui: &mut ByorGui) {
-    gui.insert_container_node(
+    gui.insert_node(
         None,
-        &Style {
-            width: Sizing::Fixed(100.0),
+        &style! {
+            width: 100.0.into(),
             height: Sizing::Grow,
-            ..Default::default()
         },
-        |_| (),
     );
 
     gui.horizontal_scroll_view(
         const { Uid::new(b"scroll_view") },
-        &Style {
+        &style! {
             width: Sizing::Grow,
-            height: Sizing::FitContent,
-            max_width: Some(600.0),
-            flex_ratio: Some(2.0),
-            child_alignment: Property::Override(Alignment::End),
-            cross_axis_alignment: Property::Override(Alignment::Center),
-            ..Default::default()
+            max_width: 600.0.into(),
+            flex_ratio: 2.0,
+            padding: 5.0.into(),
+            child_alignment: Alignment::End,
+            cross_axis_alignment: Alignment::Center,
+            child_spacing: 5.0.into(),
         },
         |mut gui| {
             for _ in 0..5 {
-                gui.insert_container_node(
+                gui.insert_node(
                     None,
-                    &Style {
-                        width: Sizing::Fixed(100.0),
-                        height: Sizing::Fixed(100.0),
-                        ..Default::default()
+                    &style! {
+                        width: 100.0.into(),
+                        height: 100.0.into(),
                     },
-                    |_| (),
                 );
             }
         },
@@ -272,56 +269,51 @@ fn gui(gui: &mut ByorGui) {
 
     gui.insert_container_node(
         None,
-        &Style {
+        &style! {
             width: Sizing::Grow,
             height: Sizing::Grow,
-            layout_direction: Property::Override(Direction::TopToBottom),
-            ..Default::default()
+            layout_direction: Direction::TopToBottom,
+            padding: 5.0.into(),
+            child_spacing: 5.0.into(),
         },
         |mut gui| {
-            gui.insert_container_node(
+            gui.insert_node(
                 None,
-                &Style {
+                &style! {
                     width: Sizing::Grow,
-                    height: Sizing::Fixed(100.0),
-                    ..Default::default()
+                    height: 100.0.into(),
                 },
-                |_| (),
             );
 
             gui.insert_container_node(
                 None,
-                &Style {
+                &style! {
                     width: Sizing::Grow,
                     height: Sizing::Grow,
-                    child_alignment: Property::Override(Alignment::Center),
-                    ..Default::default()
+                    padding: 5.0.into(),
+                    layout_direction: Direction::TopToBottom,
+                    child_alignment: Alignment::Center,
+                    child_spacing: 5.0.into(),
                 },
                 |mut gui| {
-                    gui.insert_container_node(
+                    gui.insert_node(
                         None,
-                        &Style {
-                            width: Sizing::Fixed(100.0),
-                            height: Sizing::Fixed(100.0),
-                            cross_axis_alignment: Property::Override(Alignment::Center),
-                            ..Default::default()
+                        &style! {
+                            width: 100.0.into(),
+                            height: 100.0.into(),
+                            cross_axis_alignment: Alignment::Center,
                         },
-                        |_| (),
                     );
 
                     gui.insert_text_node(
                         None,
-                        &Style {
+                        &style! {
                             width: Sizing::Grow,
-                            height: Sizing::Fixed(100.0),
-                            cross_axis_alignment: Property::Override(Alignment::Center),
-                            horizontal_text_alignment: Property::Override(
-                                HorizontalTextAlignment::Center,
-                            ),
-                            vertical_text_alignment: Property::Override(
-                                VerticalTextAlignment::Center,
-                            ),
-                            ..Default::default()
+                            height: 100.0.into(),
+                            padding: 5.0.into(),
+                            cross_axis_alignment: Alignment::Center,
+                            horizontal_text_alignment: HorizontalTextAlignment::Center,
+                            vertical_text_alignment: VerticalTextAlignment::Center,
                         },
                         "lorem ipsum dolor sit amet",
                     );

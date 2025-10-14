@@ -121,6 +121,13 @@ pub struct MouseState {
     pub button3_pressed: bool,
 }
 
+fn point_in_rect(point: Position, position: Position, size: Size) -> bool {
+    (point.x >= position.x)
+        && (point.x <= position.x + size.width)
+        && (point.y >= position.y)
+        && (point.y <= position.y + size.height)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Uid(u64);
@@ -199,10 +206,10 @@ impl Node {
         }
     }
 
-    fn new(uid: Option<Uid>, style: &Style, parent_style: &ComputedStyle) -> Self {
+    fn new(uid: Option<Uid>, style: ComputedStyle) -> Self {
         Self {
             uid,
-            style: style.compute(parent_style),
+            style,
             text_layout: None,
             min_size: Size::default(),
             max_size: Size::default(),
@@ -355,18 +362,12 @@ impl ByorGui {
 
         let node = &self.nodes[node_id];
         let mouse_position = self.mouse_state.position;
-        let mouse_in_bounds = mouse_in_parent_clip_bounds
-            && (mouse_position.x >= node.position.x)
-            && (mouse_position.x <= node.position.x + node.size.width)
-            && (mouse_position.y >= node.position.y)
-            && (mouse_position.y <= node.position.y + node.size.height);
+        let mouse_in_bounds =
+            mouse_in_parent_clip_bounds && point_in_rect(mouse_position, node.position, node.size);
 
         let (clip_position, clip_size) = node.clip_bounds();
-        let mouse_in_clip_bounds = mouse_in_bounds
-            && (mouse_position.x >= clip_position.x)
-            && (mouse_position.x <= clip_position.x + clip_size.width)
-            && (mouse_position.y >= clip_position.y)
-            && (mouse_position.y <= clip_position.y + clip_size.height);
+        let mouse_in_clip_bounds =
+            mouse_in_bounds && point_in_rect(mouse_position, clip_position, clip_size);
 
         // we have to use index-based iteration because of borrowing
         let child_count = self.child_count(node_id);
@@ -470,7 +471,8 @@ impl ByorGui {
     #[must_use]
     fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style, parent_id: NodeId) -> NodeId {
         let parent_style = &self.nodes[parent_id].style;
-        let node_id = self.nodes.insert(Node::new(uid, style, parent_style));
+        let style = style.compute(parent_style);
+        let node_id = self.nodes.insert(Node::new(uid, style));
 
         self.children
             .entry(parent_id)

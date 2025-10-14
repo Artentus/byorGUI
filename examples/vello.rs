@@ -1,6 +1,5 @@
 use anyhow::{Result, format_err};
 use byor_gui::style::*;
-use byor_gui::widgets::*;
 use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
@@ -177,18 +176,17 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 }) = self.state.as_mut()
                     && surface_valid
                 {
-                    self.gui.begin_frame(
+                    self.gui.frame(
                         Size {
                             width: surface.config.width as Pixel,
                             height: surface.config.height as Pixel,
                         },
                         self.mouse_state,
+                        gui,
                     );
 
-                    gui(&mut self.gui);
-
                     let mut scene = Scene::new();
-                    infallible!(self.gui.end_frame(&mut scene));
+                    infallible!(self.gui.render(&mut scene));
 
                     let device_handle = &self.context.devices[surface.dev_id];
                     let render_params = RenderParams {
@@ -234,7 +232,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
     }
 }
 
-fn gui(gui: &mut ByorGui) {
+fn gui(mut gui: ByorGuiContext<'_>) {
     gui.insert_node(
         None,
         &style! {

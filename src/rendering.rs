@@ -84,7 +84,7 @@ impl ByorGui {
         Ok(())
     }
 
-    pub(crate) fn render<R: Renderer>(
+    pub(crate) fn render_impl<R: Renderer>(
         &mut self,
         root_id: NodeId,
         renderer: &mut R,

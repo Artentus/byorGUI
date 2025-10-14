@@ -9,12 +9,12 @@ const SCROLL_BAR_UP_BUTTON_UID: Uid = Uid::new(b"##scroll_bar_up_button");
 const SCROLL_BAR_DOWN_BUTTON_UID: Uid = Uid::new(b"##scroll_bar_down_button");
 const SCROLL_BAR_THUMB_UID: Uid = Uid::new(b"##scroll_bar_thumb");
 
-pub trait WidgetBuilder: GuiBuilder {
-    fn button(&mut self, text: &str, uid: Uid, style: &Style) -> NodeResponse<()> {
+impl ByorGuiContext<'_> {
+    pub fn button(&mut self, text: &str, uid: Uid, style: &Style) -> NodeResponse<()> {
         self.insert_text_node(Some(uid), style, text)
     }
 
-    fn horizontal_scroll_view<R>(
+    pub fn horizontal_scroll_view<R>(
         &mut self,
         uid: Uid,
         style: &Style,
@@ -142,5 +142,3 @@ pub trait WidgetBuilder: GuiBuilder {
         .result
     }
 }
-
-impl<T: GuiBuilder> WidgetBuilder for T {}

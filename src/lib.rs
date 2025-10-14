@@ -1,7 +1,7 @@
 mod layout;
 pub mod rendering;
 pub mod style;
-pub mod widgets;
+mod widgets;
 
 use intmap::{IntKey, IntMap};
 use parley::FontContext;
@@ -223,15 +223,15 @@ type NodeIdVec = SmallVec<[NodeId; INLINE_NODE_ID_COUNT]>;
 pub struct ByorGui {
     nodes: SlotMap<NodeId, Node>,
     children: SecondaryMap<NodeId, NodeIdVec>,
-    uid_map: IntMap<Uid, NodeId>,
-    ancestor_stack: Vec<NodeId>,
     text_layouts: SlotMap<TextLayoutId, TextLayout<Color>>,
+
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
 
     root_style: Style,
     prev_mouse_state: MouseState,
     mouse_state: MouseState,
+    root_id: Option<NodeId>,
 
     text_layout_context: TextLayoutContext<Color>,
     font_context: FontContext,
@@ -280,11 +280,6 @@ impl ByorGui {
     }
 
     #[must_use]
-    fn current_node_id(&self) -> NodeId {
-        *self.ancestor_stack.last().expect("no root node present")
-    }
-
-    #[must_use]
     fn child_count(&self, node_id: NodeId) -> usize {
         self.children
             .get(node_id)
@@ -311,21 +306,6 @@ impl ByorGui {
             children: self.children.get(node_id).map(Deref::deref).unwrap_or(&[]),
             index: 0,
         }
-    }
-
-    pub fn begin_frame(&mut self, screen_size: Size, mouse_state: MouseState) {
-        self.nodes.clear();
-        self.children.clear();
-        self.uid_map.clear();
-        assert!(self.ancestor_stack.is_empty());
-        self.text_layouts.clear();
-
-        let root = Node::new_root(self.root_style(), screen_size);
-        let root_id = self.nodes.insert(root);
-        self.ancestor_stack.push(root_id);
-
-        self.prev_mouse_state = self.mouse_state;
-        self.mouse_state = mouse_state;
     }
 
     #[must_use]
@@ -414,35 +394,52 @@ impl ByorGui {
         self.previous_state.retain(|_, state| state.referenced);
     }
 
-    pub fn end_frame<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
-        let root_id = self.ancestor_stack.pop().unwrap();
-        assert!(self.ancestor_stack.is_empty());
+    pub fn frame<R>(
+        &mut self,
+        screen_size: Size,
+        mouse_state: MouseState,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> R {
+        self.nodes.clear();
+        self.children.clear();
+        self.text_layouts.clear();
+
+        self.prev_mouse_state = self.mouse_state;
+        self.mouse_state = mouse_state;
+
+        let root = Node::new_root(self.root_style(), screen_size);
+        let root_id = self.nodes.insert(root);
+        self.root_id = Some(root_id);
+
+        let result = contents(ByorGuiContext {
+            gui: self,
+            parent_id: root_id,
+        });
 
         self.layout(root_id);
         self.update_previous_states(root_id);
-        self.render(root_id, renderer)
+
+        result
+    }
+
+    pub fn render<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
+        if let Some(root_id) = self.root_id {
+            return self.render_impl(root_id, renderer);
+        }
+
+        Ok(())
     }
 
     #[must_use]
-    fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeId {
-        assert!(
-            !self.ancestor_stack.is_empty(),
-            "inserting nodes is only possible between calls to `begin_frame` and `end_frame`",
-        );
-
-        let parent_node_id = self.current_node_id();
-        let parent_style = &self.nodes[parent_node_id].style;
+    fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style, parent_id: NodeId) -> NodeId {
+        let parent_style = &self.nodes[parent_id].style;
         let node_id = self.nodes.insert(Node::new(uid, style, parent_style));
 
         self.children
-            .entry(parent_node_id)
+            .entry(parent_id)
             .expect("invalid node ID in ancestor stack")
             .or_default()
             .push(node_id);
-
-        if let Some(uid) = uid {
-            assert!(self.uid_map.insert_checked(uid, node_id), "duplicate UID");
-        }
 
         node_id
     }
@@ -450,7 +447,7 @@ impl ByorGui {
     #[must_use]
     fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
         let hovered = uid
-            .and_then(|uid| self.get_previous_state(uid))
+            .and_then(|uid| self.previous_state.get(uid))
             .map(|previous_state| previous_state.hovered)
             .unwrap_or_default();
         let pressed = hovered && self.mouse_state.button1_pressed;
@@ -492,132 +489,61 @@ pub struct ByorGuiContext<'gui> {
     parent_id: NodeId,
 }
 
-pub trait GuiBuilder {
-    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()>;
-
-    fn insert_container_node<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> NodeResponse<R>;
-
-    fn insert_text_node(&mut self, uid: Option<Uid>, style: &Style, text: &str)
-    -> NodeResponse<()>;
-
-    fn parent_style(&self) -> &ComputedStyle;
-
-    fn get_persistent_state(&self, uid: Uid) -> &PersistentState;
-
-    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState;
-
-    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState>;
-}
-
-impl GuiBuilder for ByorGui {
-    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let _ = self.insert_leaf_node(uid, style);
-        self.compute_node_response(uid, ())
+impl ByorGuiContext<'_> {
+    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+        let _ = self.gui.insert_leaf_node(uid, style, self.parent_id);
+        self.gui.compute_node_response(uid, ())
     }
 
-    fn insert_container_node<R>(
+    pub fn insert_container_node<R>(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
-        let node_id = self.insert_leaf_node(uid, style);
+        let node_id = self.gui.insert_leaf_node(uid, style, self.parent_id);
 
-        self.ancestor_stack.push(node_id);
         let result = contents(ByorGuiContext {
-            gui: self,
+            gui: self.gui,
             parent_id: node_id,
         });
-        assert!(self.ancestor_stack.pop().is_some());
 
-        self.compute_node_response(uid, result)
+        self.gui.compute_node_response(uid, result)
     }
 
-    fn insert_text_node(
+    pub fn insert_text_node(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         text: &str,
     ) -> NodeResponse<()> {
-        let node_id = self.insert_leaf_node(uid, style);
-        self.layout_text(text, node_id);
+        let node_id = self.gui.insert_leaf_node(uid, style, self.parent_id);
+        self.gui.layout_text(text, node_id);
 
-        self.compute_node_response(uid, ())
+        self.gui.compute_node_response(uid, ())
     }
 
-    fn parent_style(&self) -> &ComputedStyle {
-        let root_id = *self.ancestor_stack.first().expect(
-            "the root style is only available between calls to `begin_frame` and `end_frame`",
-        );
-        &self.nodes[root_id].style
+    pub fn parent_style(&self) -> &ComputedStyle {
+        &self.gui.nodes[self.parent_id].style
     }
 
-    fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
-        self.persistent_state
+    pub fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
+        self.gui
+            .persistent_state
             .get(uid)
             .unwrap_or(&PersistentState::DEFAULT)
     }
 
-    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
-        self.persistent_state
+    pub fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
+        self.gui
+            .persistent_state
             .entry(uid)
             .or_insert(PersistentState::DEFAULT)
     }
 
     #[inline]
-    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
-        self.previous_state.get(uid)
-    }
-}
-
-impl GuiBuilder for ByorGuiContext<'_> {
-    #[inline]
-    fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        self.gui.insert_node(uid, style)
-    }
-
-    #[inline]
-    fn insert_container_node<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> NodeResponse<R> {
-        self.gui.insert_container_node(uid, style, contents)
-    }
-
-    #[inline]
-    fn insert_text_node(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        text: &str,
-    ) -> NodeResponse<()> {
-        self.gui.insert_text_node(uid, style, text)
-    }
-
-    fn parent_style(&self) -> &ComputedStyle {
-        &self.gui.nodes[self.parent_id].style
-    }
-
-    #[inline]
-    fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
-        self.gui.get_persistent_state(uid)
-    }
-
-    #[inline]
-    fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
-        self.gui.get_persistent_state_mut(uid)
-    }
-
-    #[inline]
-    fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
-        self.gui.get_previous_state(uid)
+    pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+        self.gui.previous_state.get(uid)
     }
 }
 

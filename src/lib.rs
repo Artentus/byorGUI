@@ -4,13 +4,53 @@ pub mod style;
 mod widgets;
 
 use intmap::{IntKey, IntMap};
-use parley::FontContext;
-use parley::LayoutContext as TextLayoutContext;
 use parley::layout::Layout as TextLayout;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 use std::ops::Deref;
 use style::*;
+
+#[derive(Default)]
+struct ParleyGlobalData {
+    layout_context: parley::LayoutContext<Color>,
+    font_context: parley::FontContext,
+}
+
+impl ParleyGlobalData {
+    fn builder<'a>(&'a mut self, text: &'a str, scale: f32) -> parley::RangedBuilder<'a, Color> {
+        self.layout_context
+            .ranged_builder(&mut self.font_context, text, scale, true)
+    }
+}
+
+#[cfg(feature = "unique_global_cache")]
+mod global_cache {
+    use super::ParleyGlobalData;
+    use std::sync::{LazyLock, Mutex};
+
+    static PARLEY_GLOBAL_DATA: LazyLock<Mutex<ParleyGlobalData>> =
+        LazyLock::new(|| Mutex::new(ParleyGlobalData::default()));
+
+    pub(crate) fn with_parley_global_data<R>(f: impl FnOnce(&mut ParleyGlobalData) -> R) -> R {
+        let mut lock = PARLEY_GLOBAL_DATA.lock().unwrap();
+        f(&mut *lock)
+    }
+}
+
+#[cfg(not(feature = "unique_global_cache"))]
+mod global_cache {
+    use super::ParleyGlobalData;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static PARLEY_GLOBAL_DATA: RefCell<ParleyGlobalData> = RefCell::new(ParleyGlobalData::default());
+    }
+
+    #[inline]
+    pub(crate) fn with_parley_global_data<R>(f: impl FnOnce(&mut ParleyGlobalData) -> R) -> R {
+        PARLEY_GLOBAL_DATA.with_borrow_mut(f)
+    }
+}
 
 pub type Pixel = f32;
 
@@ -232,9 +272,6 @@ pub struct ByorGui {
     prev_mouse_state: MouseState,
     mouse_state: MouseState,
     root_id: Option<NodeId>,
-
-    text_layout_context: TextLayoutContext<Color>,
-    font_context: FontContext,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -464,23 +501,23 @@ impl ByorGui {
     fn layout_text(&mut self, text: &str, node_id: NodeId) {
         use parley::style::{LineHeight, OverflowWrap, StyleProperty};
 
-        let mut builder =
-            self.text_layout_context
-                .ranged_builder(&mut self.font_context, text, 1.0, true);
+        global_cache::with_parley_global_data(|parley_global_data| {
+            let mut builder = parley_global_data.builder(text, 1.0);
 
-        let style = &self.nodes[node_id].style;
-        builder.push_default(StyleProperty::Brush(style.text_color));
-        builder.push_default(StyleProperty::FontStack(style.font.clone()));
-        builder.push_default(StyleProperty::FontSize(style.font_size));
-        builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
-        builder.push_default(StyleProperty::FontWeight(style.font_weight.into()));
-        builder.push_default(StyleProperty::FontWidth(style.font_width));
-        builder.push_default(StyleProperty::Underline(style.text_underline));
-        builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));
-        builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
+            let style = &self.nodes[node_id].style;
+            builder.push_default(StyleProperty::Brush(style.text_color));
+            builder.push_default(StyleProperty::FontStack(style.font.clone()));
+            builder.push_default(StyleProperty::FontSize(style.font_size));
+            builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
+            builder.push_default(StyleProperty::FontWeight(style.font_weight.into()));
+            builder.push_default(StyleProperty::FontWidth(style.font_width));
+            builder.push_default(StyleProperty::Underline(style.text_underline));
+            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));
+            builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
 
-        let text_layout = self.text_layouts.insert(builder.build(text));
-        self.nodes[node_id].text_layout = Some(text_layout);
+            let text_layout = self.text_layouts.insert(builder.build(text));
+            self.nodes[node_id].text_layout = Some(text_layout);
+        });
     }
 }
 

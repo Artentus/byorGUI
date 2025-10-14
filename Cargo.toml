@@ -10,7 +10,10 @@ name = "vello"
 required-features = ["vello"]
 
 [features]
+# Implements `byor_gui::rendering::Renderer` for `vello::Scene`
 vello = ["dep:vello"]
+# Uses a mutex instead of a thread local for font and text layout caching
+unique_global_cache = []
 
 [dependencies]
 byor_gui_procmacro = { path = "./byor_gui_procmacro" }

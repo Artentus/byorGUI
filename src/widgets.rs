@@ -25,9 +25,8 @@ impl ByorGuiContext<'_> {
 
         let scroll_view_style = style
             .clone()
-            .with_flex_ratio(1.0)
             .with_layout_direction(Direction::TopToBottom)
-            .with_child_alignment(Alignment::default())
+            .with_initial_child_alignment()
             .with_child_spacing(2.0);
 
         let scroll_container_style = computed_style
@@ -38,6 +37,7 @@ impl ByorGuiContext<'_> {
             .with_initial_min_height()
             .with_initial_max_width()
             .with_initial_max_height()
+            .with_initial_flex_ratio()
             .with_padding(Padding::ZERO)
             .with_cross_axis_alignment(Alignment::Start);
 

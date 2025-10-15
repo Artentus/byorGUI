@@ -3,7 +3,7 @@ use super::*;
 use byor_gui_procmacro::StyleBuilder;
 use modular_bitfield::prelude::*;
 pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
-use slotmap::SlotMap;
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Sizing {
@@ -295,62 +295,6 @@ impl<T> From<T> for Property<T> {
     }
 }
 
-//macro_rules! define_style {
-//    ($($property_name:ident: $property_type:ty),* $(,)?) => {
-//        #[derive(Debug, Clone, StyleBuilder)]
-//        pub struct Style {
-//            $(pub $property_name: <$property_name as StylePropertyType>::Property,)*
-//        }
-//
-//        #[derive(Debug)]
-//        pub struct ComputedStyle {
-//            $($property_name: <$property_name as StylePropertyType>::Computed,)*
-//        }
-//
-//        impl Style {
-//            pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
-//                let mut style = ComputedStyle {
-//                    $(
-//                        $property_name: match &self.$property_name {
-//                            Property::Initial | Property::Inherit => ComputedStyle::INITIAL.$property_name,
-//                            Property::Value(value) => value.clone(),
-//                        },
-//                    )*
-//                };
-//
-//                style.width = Sizing::Fixed(screen_size.width);
-//                style.height = Sizing::Fixed(screen_size.height);
-//                style.min_width = screen_size.width;
-//                style.min_height = screen_size.height;
-//                style.max_width = screen_size.width;
-//                style.max_height = screen_size.height;
-//
-//                style
-//            }
-//
-//            pub fn compute(&self, parent_style: &ComputedStyle) -> ComputedStyle {
-//                ComputedStyle {
-//                    $(
-//                        $property_name: match &self.$property_name {
-//                            Property::Initial => ComputedStyle::INITIAL.$property_name,
-//                            Property::Inherit => parent_style.$property_name.clone(),
-//                            Property::Value(value) => value.clone(),
-//                        },
-//                    )*
-//                }
-//            }
-//        }
-//
-//        impl ComputedStyle {
-//            pub fn into_style(self) -> Style {
-//                Style {
-//                    $($property_name: Property::Value(self.$property_name),)*
-//                }
-//            }
-//        }
-//    };
-//}
-
 macro_rules! define_style {
     ($($property_name:ident: $property_type:ty,)*) => {
         #[derive(Debug, Clone, StyleBuilder)]
@@ -486,61 +430,20 @@ pub struct ComputedStyle {
     max_width: Pixel,
     max_height: Pixel,
     flex_ratio: f32,
-    //padding: PaddingId,
-    padding: Padding,
+    padding: Arc<Padding>,
     child_spacing: Pixel,
     background: Color,
     corner_radius: Pixel,
     border_width: Pixel,
     border_color: Color,
-    //font: FontId,
-    font_family: FontStack<'static>,
-    font_size: Pixel,
-    font_style: FontStyle,
-    font_weight: FontWeight,
-    font_width: FontWidth,
+    font: Arc<ComputedFont>,
     text_color: Color,
-}
-
-pub(crate) struct ComputedStyleData {
-    padding: SlotMap<PaddingId, Padding>,
-    initial_padding: PaddingId,
-
-    font: SlotMap<FontId, ComputedFont>,
-    initial_font: FontId,
-}
-
-impl Default for ComputedStyleData {
-    fn default() -> Self {
-        let mut padding = SlotMap::<PaddingId, _>::default();
-        let initial_padding = padding.insert(Padding::ZERO);
-
-        let mut font = SlotMap::<FontId, _>::default();
-        let initial_font = font.insert(ComputedFont::default());
-
-        Self {
-            padding,
-            initial_padding,
-
-            font,
-            initial_font,
-        }
-    }
-}
-
-impl ComputedStyleData {
-    #[inline]
-    pub(crate) fn clear(&mut self) {
-        self.padding.retain(|id, _| id == self.initial_padding);
-        self.font.retain(|id, _| id == self.initial_font);
-    }
 }
 
 const INITIAL_SIZE: ComputedSizing = ComputedSizing::FitContent;
 const INITIAL_MIN_SIZE: Pixel = 0.0;
 const INITIAL_MAX_SIZE: Pixel = Pixel::MAX;
 const INITIAL_FLEX_RATIO: f32 = 1.0;
-const INITIAL_PADDING: Padding = Padding::ZERO;
 const INITIAL_CHILD_SPACING: Pixel = 0.0;
 const INITIAL_LAYOUT_DIRECTION: Direction = Direction::LeftToRight;
 const INITIAL_ALIGNMENT: Alignment = Alignment::Start;
@@ -548,18 +451,79 @@ const INITIAL_BACKGROUND: Color = Color::TRANSPARENT;
 const INITIAL_CORNER_RADIUS: Pixel = 0.0;
 const INITIAL_BORDER_WIDTH: Pixel = 0.0;
 const INITIAL_BORDER_COLOR: Color = Color::TRANSPARENT;
-const INITIAL_FONT_FAMILY: FontStack<'static> =
-    FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi));
-const INITIAL_FONT_SIZE: Pixel = 16.0;
-const INITIAL_FONT_STYLE: FontStyle = FontStyle::Normal;
-const INITIAL_FONT_WEIGHT: FontWeight = FontWeight::NORMAL;
-const INITIAL_FONT_WIDTH: FontWidth = FontWidth::NORMAL;
 const INITIAL_TEXT_UNDERLINE: bool = false;
 const INITIAL_TEXT_STRIKETHROUGH: bool = false;
 const INITIAL_TEXT_WRAP: bool = true;
 const INITIAL_TEXT_COLOR: Color = Color::BLACK;
 const INITIAL_HORIZONTAL_TEXT_ALIGNMENT: HorizontalTextAlignment = HorizontalTextAlignment::Start;
 const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextAlignment::Top;
+
+static INITIAL_PADDING: LazyLock<Arc<Padding>> = LazyLock::new(|| Arc::new(Padding::ZERO));
+
+static INITIAL_FONT: LazyLock<Arc<ComputedFont>> = LazyLock::new(|| {
+    Arc::new(ComputedFont {
+        family: FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
+        size: 16.0,
+        style: FontStyle::Normal,
+        weight: FontWeight::NORMAL,
+        width: FontWidth::NORMAL,
+    })
+});
+
+fn compute_root_font(style: &Style) -> ComputedFont {
+    ComputedFont {
+        family: match &style.font_family {
+            Property::Initial | Property::Inherit => INITIAL_FONT.family.clone(),
+            Property::Value(value) => value.clone(),
+        },
+        size: match style.font_size {
+            Property::Initial | Property::Inherit => INITIAL_FONT.size,
+            Property::Value(value) => value,
+        },
+        style: match style.font_style {
+            Property::Initial | Property::Inherit => INITIAL_FONT.style,
+            Property::Value(value) => value,
+        },
+        weight: match style.font_weight {
+            Property::Initial | Property::Inherit => INITIAL_FONT.weight,
+            Property::Value(value) => value,
+        },
+        width: match style.font_width {
+            Property::Initial | Property::Inherit => INITIAL_FONT.width,
+            Property::Value(value) => value,
+        },
+    }
+}
+
+fn compute_font(style: &Style, parent_style: &ComputedStyle) -> ComputedFont {
+    ComputedFont {
+        family: match &style.font_family {
+            Property::Initial => INITIAL_FONT.family.clone(),
+            Property::Inherit => parent_style.font.family.clone(),
+            Property::Value(value) => value.clone(),
+        },
+        size: match style.font_size {
+            Property::Initial => INITIAL_FONT.size,
+            Property::Inherit => parent_style.font.size,
+            Property::Value(value) => value,
+        },
+        style: match style.font_style {
+            Property::Initial => INITIAL_FONT.style,
+            Property::Inherit => parent_style.font.style,
+            Property::Value(value) => value,
+        },
+        weight: match style.font_weight {
+            Property::Initial => INITIAL_FONT.weight,
+            Property::Inherit => parent_style.font.weight,
+            Property::Value(value) => value,
+        },
+        width: match style.font_width {
+            Property::Initial => INITIAL_FONT.width,
+            Property::Inherit => parent_style.font.width,
+            Property::Value(value) => value,
+        },
+    }
+}
 
 impl Style {
     pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
@@ -573,7 +537,6 @@ impl Style {
         }
 
         let flex_ratio = compute_property!(flex_ratio, INITIAL_FLEX_RATIO);
-        let padding = compute_property!(padding, INITIAL_PADDING);
         let child_spacing = compute_property!(child_spacing, INITIAL_CHILD_SPACING);
         let layout_direction = compute_property!(layout_direction, INITIAL_LAYOUT_DIRECTION);
         let child_alignment = compute_property!(child_alignment, INITIAL_ALIGNMENT);
@@ -582,11 +545,6 @@ impl Style {
         let corner_radius = compute_property!(corner_radius, INITIAL_CORNER_RADIUS);
         let border_width = compute_property!(border_width, INITIAL_BORDER_WIDTH);
         let border_color = compute_property!(border_color, INITIAL_BORDER_COLOR);
-        let font_family = compute_property!(font_family, INITIAL_FONT_FAMILY);
-        let font_style = compute_property!(font_style, INITIAL_FONT_STYLE);
-        let font_size = compute_property!(font_size, INITIAL_FONT_SIZE);
-        let font_weight = compute_property!(font_weight, INITIAL_FONT_WEIGHT);
-        let font_width = compute_property!(font_width, INITIAL_FONT_WIDTH);
         let text_underline = compute_property!(text_underline, INITIAL_TEXT_UNDERLINE);
         let text_strikethrough = compute_property!(text_strikethrough, INITIAL_TEXT_STRIKETHROUGH);
         let text_wrap = compute_property!(text_wrap, INITIAL_TEXT_WRAP);
@@ -595,6 +553,22 @@ impl Style {
             compute_property!(horizontal_text_alignment, INITIAL_HORIZONTAL_TEXT_ALIGNMENT);
         let vertical_text_alignment =
             compute_property!(vertical_text_alignment, INITIAL_VERTICAL_TEXT_ALIGNMENT);
+
+        let padding = match self.padding {
+            Property::Initial | Property::Inherit => Arc::clone(&*INITIAL_PADDING),
+            Property::Value(value) => Arc::new(value),
+        };
+
+        let font = if matches!(self.font_family, Property::Initial | Property::Inherit)
+            && matches!(self.font_size, Property::Initial | Property::Inherit)
+            && matches!(self.font_style, Property::Initial | Property::Inherit)
+            && matches!(self.font_weight, Property::Initial | Property::Inherit)
+            && matches!(self.font_width, Property::Initial | Property::Inherit)
+        {
+            Arc::clone(&*INITIAL_FONT)
+        } else {
+            Arc::new(compute_root_font(self))
+        };
 
         ComputedStyle {
             packed_fields: ComputedStylePackedFields::new()
@@ -620,20 +594,12 @@ impl Style {
             corner_radius,
             border_width,
             border_color,
-            font_family,
-            font_size,
-            font_style,
-            font_weight,
-            font_width,
+            font,
             text_color,
         }
     }
 
-    pub fn compute(
-        &self,
-        parent_style: &ComputedStyle,
-        //data: &mut ComputedStyleData,
-    ) -> ComputedStyle {
+    pub fn compute(&self, parent_style: &ComputedStyle) -> ComputedStyle {
         macro_rules! compute_property {
             ($property:ident, $initial:expr) => {
                 match self.$property {
@@ -654,6 +620,20 @@ impl Style {
             };
         }
 
+        macro_rules! match_size {
+            ($size:expr, $min_size:expr, $max_size:expr) => {
+                match $size {
+                    Sizing::FitContent => ComputedSizing::FitContent,
+                    Sizing::Grow => ComputedSizing::Grow,
+                    Sizing::Fixed(fixed_size) => {
+                        $min_size = fixed_size.clamp($min_size, $max_size);
+                        $max_size = $min_size;
+                        ComputedSizing::Fixed
+                    }
+                }
+            };
+        }
+
         let mut min_width = compute_property!(min_width, INITIAL_MIN_SIZE);
         let mut min_height = compute_property!(min_height, INITIAL_MIN_SIZE);
         let mut max_width = compute_property!(max_width, INITIAL_MAX_SIZE);
@@ -661,46 +641,14 @@ impl Style {
 
         let computed_width = match self.width {
             Property::Initial => INITIAL_SIZE,
-            Property::Inherit => match parent_style.packed_fields.width() {
-                ComputedSizing::FitContent => ComputedSizing::FitContent,
-                ComputedSizing::Grow => ComputedSizing::Grow,
-                ComputedSizing::Fixed => {
-                    min_width = parent_style.min_width;
-                    max_width = parent_style.max_width;
-                    ComputedSizing::Fixed
-                }
-            },
-            Property::Value(width) => match width {
-                Sizing::FitContent => ComputedSizing::FitContent,
-                Sizing::Grow => ComputedSizing::Grow,
-                Sizing::Fixed(fixed_width) => {
-                    min_width = fixed_width.clamp(min_width, max_width);
-                    max_width = min_width;
-                    ComputedSizing::Fixed
-                }
-            },
+            Property::Inherit => match_size!(parent_style.width(), min_width, max_width),
+            Property::Value(width) => match_size!(width, min_width, max_width),
         };
 
         let computed_height = match self.height {
             Property::Initial => INITIAL_SIZE,
-            Property::Inherit => match parent_style.packed_fields.height() {
-                ComputedSizing::FitContent => ComputedSizing::FitContent,
-                ComputedSizing::Grow => ComputedSizing::Grow,
-                ComputedSizing::Fixed => {
-                    min_height = parent_style.min_height;
-                    max_height = parent_style.max_height;
-                    ComputedSizing::Fixed
-                }
-            },
-            Property::Value(height) => match height {
-                Sizing::FitContent => ComputedSizing::FitContent,
-                Sizing::Grow => ComputedSizing::Grow,
-                Sizing::Fixed(fixed_height) => {
-                    min_height = fixed_height.clamp(min_height, max_height);
-                    max_height = min_height;
-                    ComputedSizing::Fixed
-                }
-            },
+            Property::Inherit => match_size!(parent_style.height(), min_height, max_height),
+            Property::Value(height) => match_size!(height, min_height, max_height),
         };
 
         let flex_ratio = compute_property!(flex_ratio, INITIAL_FLEX_RATIO);
@@ -724,23 +672,29 @@ impl Style {
         let vertical_text_alignment =
             compute_packed_property!(vertical_text_alignment, INITIAL_VERTICAL_TEXT_ALIGNMENT);
 
-        let padding = compute_property!(padding, INITIAL_PADDING);
-        //let padding = match self.padding {
-        //    Property::Initial => data.initial_padding,
-        //    Property::Inherit => parent_style.padding,
-        //    Property::Value(padding) => data.padding.insert(padding),
-        //};
-
-        let font_family = match &self.font_family {
-            Property::Initial => INITIAL_FONT_FAMILY,
-            Property::Inherit => parent_style.font_family.clone(),
-            Property::Value(value) => value.clone(),
+        let padding = match self.padding {
+            Property::Initial => Arc::clone(&*INITIAL_PADDING),
+            Property::Inherit => Arc::clone(&parent_style.padding),
+            Property::Value(value) => Arc::new(value),
         };
 
-        let font_size = compute_property!(font_size, INITIAL_FONT_SIZE);
-        let font_style = compute_property!(font_style, INITIAL_FONT_STYLE);
-        let font_weight = compute_property!(font_weight, INITIAL_FONT_WEIGHT);
-        let font_width = compute_property!(font_width, INITIAL_FONT_WIDTH);
+        let font = if matches!(self.font_family, Property::Initial)
+            && matches!(self.font_size, Property::Initial)
+            && matches!(self.font_style, Property::Initial)
+            && matches!(self.font_weight, Property::Initial)
+            && matches!(self.font_width, Property::Initial)
+        {
+            Arc::clone(&*INITIAL_FONT)
+        } else if matches!(self.font_family, Property::Inherit)
+            && matches!(self.font_size, Property::Inherit)
+            && matches!(self.font_style, Property::Inherit)
+            && matches!(self.font_weight, Property::Inherit)
+            && matches!(self.font_width, Property::Inherit)
+        {
+            Arc::clone(&parent_style.font)
+        } else {
+            Arc::new(compute_font(self, parent_style))
+        };
 
         ComputedStyle {
             packed_fields: ComputedStylePackedFields::new()
@@ -766,178 +720,11 @@ impl Style {
             corner_radius,
             border_width,
             border_color,
-            font_family,
-            font_size,
-            font_style,
-            font_weight,
-            font_width,
+            font,
             text_color,
         }
     }
 }
-
-pub struct ComputedStyleRef<'a> {
-    style: &'a ComputedStyle,
-    data: &'a ComputedStyleData,
-}
-
-/*
-impl<'a> ComputedStyleRef<'a> {
-    #[inline]
-    pub(crate) fn new(
-        style: &'a ComputedStyle,
-        data: &'a ComputedStyleData,
-    ) -> Self {
-        Self {
-            style,
-            data,
-        }
-    }
-
-    #[inline]
-    pub fn width(&self) -> Sizing {
-        match self.style.packed_fields.width() {
-            ComputedSizing::FitContent => Sizing::FitContent,
-            ComputedSizing::Grow => Sizing::Grow,
-            ComputedSizing::Fixed => Sizing::Fixed(self.style.min_width),
-        }
-    }
-
-    #[inline]
-    pub fn height(&self) -> Sizing {
-        match self.style.packed_fields.height() {
-            ComputedSizing::FitContent => Sizing::FitContent,
-            ComputedSizing::Grow => Sizing::Grow,
-            ComputedSizing::Fixed => Sizing::Fixed(self.style.min_height),
-        }
-    }
-
-    #[inline]
-    pub fn min_width(&self) -> Pixel {
-        self.style.min_width
-    }
-
-    #[inline]
-    pub fn min_height(&self) -> Pixel {
-        self.style.min_height
-    }
-
-    #[inline]
-    pub fn max_width(&self) -> Pixel {
-        self.style.max_width
-    }
-
-    #[inline]
-    pub fn max_height(&self) -> Pixel {
-        self.style.max_height
-    }
-
-    #[inline]
-    pub fn flex_ratio(&self) -> f32 {
-        self.style.flex_ratio
-    }
-
-    #[inline]
-    pub fn padding(&self) -> Padding {
-        self.data.padding[self.style.padding]
-    }
-
-    #[inline]
-    pub fn child_spacing(&self) -> Pixel {
-        self.style.child_spacing
-    }
-
-    #[inline]
-    pub fn layout_direction(&self) -> Direction {
-        self.style.packed_fields.layout_direction()
-    }
-
-    #[inline]
-    pub fn child_alignment(&self) -> Alignment {
-        self.style.packed_fields.child_alignment()
-    }
-
-    #[inline]
-    pub fn cross_axis_alignment(&self) -> Alignment {
-        self.style.packed_fields.cross_axis_alignment()
-    }
-
-    #[inline]
-    pub fn background(&self) -> Color {
-        self.style.background
-    }
-
-    #[inline]
-    pub fn corner_radius(&self) -> Pixel {
-        self.style.corner_radius
-    }
-
-    #[inline]
-    pub fn border_width(&self) -> Pixel {
-        self.style.border_width
-    }
-
-    #[inline]
-    pub fn border_color(&self) -> Color {
-        self.style.border_color
-    }
-
-    #[inline]
-    pub fn font_family(&self) -> &FontStack<'static> {
-        &self.data.font[self.style.font].family
-    }
-
-    #[inline]
-    pub fn font_size(&self) -> Pixel {
-        self.data.font[self.style.font].size
-    }
-
-    #[inline]
-    pub fn font_style(&self) -> FontStyle {
-        self.data.font[self.style.font].style
-    }
-
-    #[inline]
-    pub fn font_weight(&self) -> FontWeight {
-        self.data.font[self.style.font].weight
-    }
-
-    #[inline]
-    pub fn font_width(&self) -> FontWidth {
-        self.data.font[self.style.font].width
-    }
-
-    #[inline]
-    pub fn text_underline(&self) -> bool {
-        self.style.packed_fields.text_underline()
-    }
-
-    #[inline]
-    pub fn text_strikethrough(&self) -> bool {
-        self.style.packed_fields.text_strikethrough()
-    }
-
-    #[inline]
-    pub fn text_wrap(&self) -> bool {
-        self.style.packed_fields.text_wrap()
-    }
-
-    #[inline]
-    pub fn text_color(&self) -> Color {
-        self.style.text_color
-    }
-
-    #[inline]
-    pub fn horizontal_text_alignment(&self) -> HorizontalTextAlignment {
-        self.style.packed_fields.horizontal_text_alignment()
-    }
-
-    #[inline]
-    pub fn vertical_text_alignment(&self) -> VerticalTextAlignment {
-        self.style.packed_fields.vertical_text_alignment()
-    }
-}
-*/
 
 impl ComputedStyle {
     #[inline]
@@ -985,7 +772,7 @@ impl ComputedStyle {
 
     #[inline]
     pub fn padding(&self) -> Padding {
-        self.padding
+        *self.padding
     }
 
     #[inline]
@@ -1030,27 +817,27 @@ impl ComputedStyle {
 
     #[inline]
     pub fn font_family(&self) -> &FontStack<'static> {
-        &self.font_family
+        &self.font.family
     }
 
     #[inline]
     pub fn font_size(&self) -> Pixel {
-        self.font_size
+        self.font.size
     }
 
     #[inline]
     pub fn font_style(&self) -> FontStyle {
-        self.font_style
+        self.font.style
     }
 
     #[inline]
     pub fn font_weight(&self) -> FontWeight {
-        self.font_weight
+        self.font.weight
     }
 
     #[inline]
     pub fn font_width(&self) -> FontWidth {
-        self.font_width
+        self.font.width
     }
 
     #[inline]

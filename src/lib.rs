@@ -270,7 +270,6 @@ type NodeIdVec = SmallVec<[NodeId; INLINE_NODE_ID_COUNT]>;
 pub struct ByorGui {
     nodes: SlotMap<NodeId, Node>,
     children: SecondaryMap<NodeId, NodeIdVec>,
-    style_data: ComputedStyleData,
     text_layouts: SlotMap<TextLayoutId, TextLayout<Color>>,
 
     persistent_state: IntMap<Uid, PersistentState>,
@@ -441,7 +440,6 @@ impl ByorGui {
     ) -> R {
         self.nodes.clear();
         self.children.clear();
-        self.style_data.clear();
         self.text_layouts.clear();
 
         self.prev_mouse_state = self.mouse_state;

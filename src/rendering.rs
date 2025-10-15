@@ -61,9 +61,9 @@ impl ByorGui {
                     match item {
                         parley::PositionedLayoutItem::GlyphRun(text) => {
                             let text_position = Position {
-                                x: node.position.x + node.style.padding.left,
+                                x: node.position.x + node.style.padding().left,
                                 y: node.position.y
-                                    + node.style.padding.top
+                                    + node.style.padding().top
                                     + node.vertical_text_offset,
                             };
                             renderer.draw_text(text, text_position)?

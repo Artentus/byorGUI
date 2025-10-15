@@ -221,13 +221,13 @@ impl Node {
 
     fn clip_bounds(&self) -> (Position, Size) {
         let clip_position = Position {
-            x: self.position.x + self.style.padding.left,
-            y: self.position.y + self.style.padding.top,
+            x: self.position.x + self.style.padding().left,
+            y: self.position.y + self.style.padding().top,
         };
 
         let clip_size = Size {
-            width: self.size.width - self.style.padding.left - self.style.padding.right,
-            height: self.size.height - self.style.padding.top - self.style.padding.bottom,
+            width: self.size.width - self.style.padding().left - self.style.padding().right,
+            height: self.size.height - self.style.padding().top - self.style.padding().bottom,
         };
 
         (clip_position, clip_size)
@@ -270,6 +270,7 @@ type NodeIdVec = SmallVec<[NodeId; INLINE_NODE_ID_COUNT]>;
 pub struct ByorGui {
     nodes: SlotMap<NodeId, Node>,
     children: SecondaryMap<NodeId, NodeIdVec>,
+    style_data: ComputedStyleData,
     text_layouts: SlotMap<TextLayoutId, TextLayout<Color>>,
 
     persistent_state: IntMap<Uid, PersistentState>,
@@ -392,7 +393,7 @@ impl ByorGui {
             }
 
             let total_spacing =
-                (self.child_count(node_id).saturating_sub(1) as Pixel) * node.style.child_spacing;
+                (self.child_count(node_id).saturating_sub(1) as Pixel) * node.style.child_spacing();
 
             let state = self.previous_state.entry(uid).or_default();
             state.referenced = true; // this state is indeed still referenced
@@ -405,11 +406,11 @@ impl ByorGui {
             };
 
             state.inner_size = Size {
-                width: node.size.width - node.style.padding.left - node.style.padding.right,
-                height: node.size.height - node.style.padding.top - node.style.padding.bottom,
+                width: node.size.width - node.style.padding().left - node.style.padding().right,
+                height: node.size.height - node.style.padding().top - node.style.padding().bottom,
             };
 
-            state.content_size = match node.style.layout_direction {
+            state.content_size = match node.style.layout_direction() {
                 Direction::LeftToRight => Size {
                     width: total_content_size.width + total_spacing,
                     height: max_content_size.height,
@@ -440,6 +441,7 @@ impl ByorGui {
     ) -> R {
         self.nodes.clear();
         self.children.clear();
+        self.style_data.clear();
         self.text_layouts.clear();
 
         self.prev_mouse_state = self.mouse_state;
@@ -507,14 +509,14 @@ impl ByorGui {
             let mut builder = parley_global_data.builder(text, 1.0);
 
             let style = &self.nodes[node_id].style;
-            builder.push_default(StyleProperty::Brush(style.text_color));
-            builder.push_default(StyleProperty::FontStack(style.font.clone()));
-            builder.push_default(StyleProperty::FontSize(style.font_size));
+            builder.push_default(StyleProperty::Brush(style.text_color()));
+            builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
+            builder.push_default(StyleProperty::FontSize(style.font_size()));
             builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
-            builder.push_default(StyleProperty::FontWeight(style.font_weight.into()));
-            builder.push_default(StyleProperty::FontWidth(style.font_width));
-            builder.push_default(StyleProperty::Underline(style.text_underline));
-            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough));
+            builder.push_default(StyleProperty::FontWeight(style.font_weight()));
+            builder.push_default(StyleProperty::FontWidth(style.font_width()));
+            builder.push_default(StyleProperty::Underline(style.text_underline()));
+            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
             builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
 
             let text_layout = self.text_layouts.insert(builder.build(text));
@@ -564,6 +566,10 @@ impl ByorGuiContext<'_> {
 
     pub fn parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
+        //ComputedStyleRef::new(
+        //    &self.gui.nodes[self.parent_id].style,
+        //    &self.gui.style_data,
+        //)
     }
 
     pub fn get_persistent_state(&self, uid: Uid) -> &PersistentState {

@@ -86,24 +86,24 @@ impl ComputedStyle {
     #[inline]
     fn size_along_axis(&self, axis: Axis) -> Sizing {
         match axis {
-            Axis::X => self.width,
-            Axis::Y => self.height,
+            Axis::X => self.width(),
+            Axis::Y => self.height(),
         }
     }
 
     #[inline]
     fn min_size_along_axis(&self, axis: Axis) -> Pixel {
         match axis {
-            Axis::X => self.min_width,
-            Axis::Y => self.min_height,
+            Axis::X => self.min_width(),
+            Axis::Y => self.min_height(),
         }
     }
 
     #[inline]
     fn max_size_along_axis(&self, axis: Axis) -> Pixel {
         match axis {
-            Axis::X => self.max_width,
-            Axis::Y => self.max_height,
+            Axis::X => self.max_width(),
+            Axis::Y => self.max_height(),
         }
     }
 }
@@ -121,13 +121,13 @@ impl PersistentState {
 fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
     use parley::AlignmentOptions as TextAlignmentOptions;
 
-    let horizontal_padding = node.style.padding.left + node.style.padding.right;
+    let horizontal_padding = node.style.padding().left + node.style.padding().right;
     let wrap_width = node.size.width - horizontal_padding;
 
-    text_layout.break_all_lines(node.style.text_wrap.then_some(wrap_width));
+    text_layout.break_all_lines(node.style.text_wrap().then_some(wrap_width));
     text_layout.align(
         Some(wrap_width),
-        node.style.horizontal_text_alignment,
+        node.style.horizontal_text_alignment().into(),
         TextAlignmentOptions {
             align_when_overflowing: true,
         },
@@ -175,7 +175,7 @@ impl ByorGui {
             let text_layout = &mut self.text_layouts[text_layout_id];
             let padding: Pixel = node
                 .style
-                .padding
+                .padding()
                 .along_axis(axis)
                 .into_iter()
                 .sum::<Pixel>();
@@ -192,7 +192,7 @@ impl ByorGui {
                         .ceil()
                         .clamp(min_width, max_size);
 
-                    node.min_size.width = if node.style.text_wrap {
+                    node.min_size.width = if node.style.text_wrap() {
                         min_width
                     } else {
                         width
@@ -219,13 +219,13 @@ impl ByorGui {
 
         // fit content or grow sizing
         {
-            let padding = node.style.padding.along_axis(axis);
+            let padding = node.style.padding().along_axis(axis);
             let mut min_fit_size: Pixel = padding[0] + padding[1];
             let mut fit_size: Pixel = min_fit_size;
 
-            let (min_child_size, child_size) = if axis.is_primary(node.style.layout_direction) {
+            let (min_child_size, child_size) = if axis.is_primary(node.style.layout_direction()) {
                 let total_child_spacing =
-                    (child_count.saturating_sub(1) as Pixel) * node.style.child_spacing;
+                    (child_count.saturating_sub(1) as Pixel) * node.style.child_spacing();
 
                 let mut total_min_child_size = total_child_spacing;
                 let mut total_child_size = total_child_spacing;
@@ -272,12 +272,12 @@ impl ByorGui {
     fn grow_or_shrink_children(&mut self, parent_id: NodeId, axis: Axis) {
         let parent = &self.nodes[parent_id];
         let parent_size = parent.size.along_axis(axis);
-        let parent_padding: Pixel = parent.style.padding.along_axis(axis).into_iter().sum();
+        let parent_padding: Pixel = parent.style.padding().along_axis(axis).into_iter().sum();
 
         let node_count = self.child_count(parent_id);
-        if axis.is_primary(parent.style.layout_direction) {
+        if axis.is_primary(parent.style.layout_direction()) {
             let total_spacing =
-                (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing;
+                (node_count.saturating_sub(1) as Pixel) * parent.style.child_spacing();
 
             let mut total_target_size = parent_size - parent_padding - total_spacing;
             let mut available_space = total_target_size;
@@ -291,7 +291,7 @@ impl ByorGui {
                     total_target_size -= node.size.along_axis(axis);
                 } else {
                     nodes_to_resize.push(node_id);
-                    flex_ratio_sum += node.style.flex_ratio;
+                    flex_ratio_sum += node.style.flex_ratio();
                 }
             }
 
@@ -313,7 +313,7 @@ impl ByorGui {
                         let min_size = node.min_size.along_axis(axis);
                         let max_size = node.max_size.along_axis(axis);
 
-                        let flex_ratio = node.style.flex_ratio;
+                        let flex_ratio = node.style.flex_ratio();
                         let flex_factor = if flex_ratio_sum > 0.0 {
                             flex_ratio / flex_ratio_sum
                         } else {
@@ -342,7 +342,7 @@ impl ByorGui {
                 for node_id in nodes_to_resize.drain(..) {
                     let node = &mut self.nodes[node_id];
 
-                    let flex_ratio = node.style.flex_ratio;
+                    let flex_ratio = node.style.flex_ratio();
                     let flex_factor = if flex_ratio_sum > 0.0 {
                         flex_ratio / flex_ratio_sum
                     } else {
@@ -372,27 +372,27 @@ impl ByorGui {
 
     fn position_children(&mut self, parent_id: NodeId) {
         let parent = &mut self.nodes[parent_id];
-        let parent_layout_direction = parent.style.layout_direction;
-        let parent_child_spacing = parent.style.child_spacing;
-        let parent_child_alignment = parent.style.child_alignment;
+        let parent_layout_direction = parent.style.layout_direction();
+        let parent_child_spacing = parent.style.child_spacing();
+        let parent_child_alignment = parent.style.child_alignment();
 
         if let Some(&text_layout_id) = parent.text_layout.as_ref() {
             let text_layout = &self.text_layouts[text_layout_id];
 
-            parent.vertical_text_offset = match parent.style.vertical_text_alignment {
+            parent.vertical_text_offset = match parent.style.vertical_text_alignment() {
                 VerticalTextAlignment::Top => 0.0,
                 VerticalTextAlignment::Center => {
                     (parent.size.height
                         - text_layout.height()
-                        - parent.style.padding.top
-                        - parent.style.padding.bottom)
+                        - parent.style.padding().top
+                        - parent.style.padding().bottom)
                         / 2.0
                 }
                 VerticalTextAlignment::Bottom => {
                     parent.size.height
                         - text_layout.height()
-                        - parent.style.padding.top
-                        - parent.style.padding.bottom
+                        - parent.style.padding().top
+                        - parent.style.padding().bottom
                 }
             };
         }
@@ -404,7 +404,7 @@ impl ByorGui {
             let parent = &self.nodes[parent_id];
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
-            let parent_padding = parent.style.padding.along_axis(axis);
+            let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
                 .and_then(|uid| self.persistent_state.get(uid))
@@ -444,7 +444,7 @@ impl ByorGui {
             let parent = &self.nodes[parent_id];
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.size.along_axis(axis);
-            let parent_padding = parent.style.padding.along_axis(axis);
+            let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
                 .and_then(|uid| self.persistent_state.get(uid))
@@ -454,7 +454,7 @@ impl ByorGui {
             let mut nodes = self.iter_children_mut(parent_id);
 
             while let Some(node) = nodes.next() {
-                *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment {
+                *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment() {
                     Alignment::Start => parent_position + parent_padding[0],
                     Alignment::Center => {
                         parent_position + (parent_size - node.size.along_axis(axis)) / 2.0

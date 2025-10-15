@@ -182,6 +182,7 @@ dependencies = [
  "anyhow",
  "byor_gui_procmacro",
  "intmap",
+ "modular-bitfield",
  "parley",
  "pollster",
  "rapidhash",
@@ -985,6 +986,27 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "modular-bitfield"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0d5274763b5572c8f29dadb5cd0bc59de64c805de433c1b556075f733b0a1a"
+dependencies = [
+ "modular-bitfield-impl",
+ "static_assertions",
+]
+
+[[package]]
+name = "modular-bitfield-impl"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8eec4327f127d4d18c54c8bfbf7b05d74cc9a1befdcc6283a241238ffbc84c6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

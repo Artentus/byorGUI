@@ -30,7 +30,7 @@ impl ByorGuiContext<'_> {
             .with_child_spacing(2.0);
 
         let scroll_container_style = computed_style
-            .into_style()
+            .as_style()
             .with_width(Sizing::Grow)
             .with_height(Sizing::Grow)
             .with_initial_min_width()

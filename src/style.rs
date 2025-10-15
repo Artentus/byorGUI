@@ -1,8 +1,9 @@
 use super::*;
 
 use byor_gui_procmacro::StyleBuilder;
-pub use parley::Alignment as HorizontalTextAlignment;
-pub use parley::style::{FontFamily, FontStack, FontStyle, FontWidth, GenericFamily};
+use modular_bitfield::prelude::*;
+pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
+use slotmap::SlotMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Sizing {
@@ -103,14 +104,15 @@ impl From<[Pixel; 4]> for Padding {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
 pub enum Direction {
     #[default]
     LeftToRight,
     TopToBottom,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
+#[bits = 2]
 pub enum Alignment {
     #[default]
     Start,
@@ -118,41 +120,46 @@ pub enum Alignment {
     End,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FontWeight {
-    Thin,
-    ExtraLight,
-    Light,
-    SemiLight,
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
+#[bits = 3]
+pub enum HorizontalTextAlignment {
+    /// This is [`HorizontalTextAlignment::Left`] for LTR text and [`HorizontalTextAlignment::Right`] for RTL text.
     #[default]
-    Normal,
-    Medium,
-    SemiBold,
-    Bold,
-    ExtraBold,
-    Black,
-    ExtraBlack,
+    Start,
+    /// This is [`HorizontalTextAlignment::Right`] for LTR text and [`HorizontalTextAlignment::Left`] for RTL text.
+    End,
+    /// Align content to the left edge.
+    ///
+    /// For alignment that should be aware of text direction, use [`HorizontalTextAlignment::Start`] or
+    /// [`HorizontalTextAlignment::End`] instead.
+    Left,
+    /// Align each line centered within the container.
+    Center,
+    /// Align content to the right edge.
+    ///
+    /// For alignment that should be aware of text direction, use [`HorizontalTextAlignment::Start`] or
+    /// [`HorizontalTextAlignment::End`] instead.
+    Right,
+    /// Justify each line by spacing out content, except for the last line.
+    Justify,
 }
 
-impl From<FontWeight> for parley::style::FontWeight {
-    fn from(value: FontWeight) -> Self {
+impl From<HorizontalTextAlignment> for parley::Alignment {
+    #[inline]
+    fn from(value: HorizontalTextAlignment) -> Self {
         match value {
-            FontWeight::Thin => parley::style::FontWeight::THIN,
-            FontWeight::ExtraLight => parley::style::FontWeight::EXTRA_LIGHT,
-            FontWeight::Light => parley::style::FontWeight::LIGHT,
-            FontWeight::SemiLight => parley::style::FontWeight::SEMI_LIGHT,
-            FontWeight::Normal => parley::style::FontWeight::NORMAL,
-            FontWeight::Medium => parley::style::FontWeight::MEDIUM,
-            FontWeight::SemiBold => parley::style::FontWeight::SEMI_BOLD,
-            FontWeight::Bold => parley::style::FontWeight::BOLD,
-            FontWeight::ExtraBold => parley::style::FontWeight::EXTRA_BOLD,
-            FontWeight::Black => parley::style::FontWeight::BLACK,
-            FontWeight::ExtraBlack => parley::style::FontWeight::EXTRA_BLACK,
+            HorizontalTextAlignment::Start => Self::Start,
+            HorizontalTextAlignment::End => Self::End,
+            HorizontalTextAlignment::Left => Self::Left,
+            HorizontalTextAlignment::Center => Self::Center,
+            HorizontalTextAlignment::Right => Self::Right,
+            HorizontalTextAlignment::Justify => Self::Justify,
         }
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
+#[bits = 2]
 pub enum VerticalTextAlignment {
     #[default]
     Top,
@@ -288,58 +295,67 @@ impl<T> From<T> for Property<T> {
     }
 }
 
+//macro_rules! define_style {
+//    ($($property_name:ident: $property_type:ty),* $(,)?) => {
+//        #[derive(Debug, Clone, StyleBuilder)]
+//        pub struct Style {
+//            $(pub $property_name: <$property_name as StylePropertyType>::Property,)*
+//        }
+//
+//        #[derive(Debug)]
+//        pub struct ComputedStyle {
+//            $($property_name: <$property_name as StylePropertyType>::Computed,)*
+//        }
+//
+//        impl Style {
+//            pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
+//                let mut style = ComputedStyle {
+//                    $(
+//                        $property_name: match &self.$property_name {
+//                            Property::Initial | Property::Inherit => ComputedStyle::INITIAL.$property_name,
+//                            Property::Value(value) => value.clone(),
+//                        },
+//                    )*
+//                };
+//
+//                style.width = Sizing::Fixed(screen_size.width);
+//                style.height = Sizing::Fixed(screen_size.height);
+//                style.min_width = screen_size.width;
+//                style.min_height = screen_size.height;
+//                style.max_width = screen_size.width;
+//                style.max_height = screen_size.height;
+//
+//                style
+//            }
+//
+//            pub fn compute(&self, parent_style: &ComputedStyle) -> ComputedStyle {
+//                ComputedStyle {
+//                    $(
+//                        $property_name: match &self.$property_name {
+//                            Property::Initial => ComputedStyle::INITIAL.$property_name,
+//                            Property::Inherit => parent_style.$property_name.clone(),
+//                            Property::Value(value) => value.clone(),
+//                        },
+//                    )*
+//                }
+//            }
+//        }
+//
+//        impl ComputedStyle {
+//            pub fn into_style(self) -> Style {
+//                Style {
+//                    $($property_name: Property::Value(self.$property_name),)*
+//                }
+//            }
+//        }
+//    };
+//}
+
 macro_rules! define_style {
-    ($($name:ident: $t:ty,)*) => {
+    ($($property_name:ident: $property_type:ty,)*) => {
         #[derive(Debug, Clone, StyleBuilder)]
         pub struct Style {
-            $(pub $name: Property<$t>,)*
-        }
-
-        #[derive(Debug, Clone)]
-        pub struct ComputedStyle {
-            $(pub $name: $t,)*
-        }
-
-        impl Style {
-            pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
-                let mut style = ComputedStyle {
-                    $(
-                        $name: match &self.$name {
-                            Property::Initial | Property::Inherit => ComputedStyle::INITIAL.$name,
-                            Property::Value(value) => value.clone(),
-                        },
-                    )*
-                };
-
-                style.width = Sizing::Fixed(screen_size.width);
-                style.height = Sizing::Fixed(screen_size.height);
-                style.min_width = screen_size.width;
-                style.min_height = screen_size.height;
-                style.max_width = screen_size.width;
-                style.max_height = screen_size.height;
-
-                style
-            }
-
-            pub fn compute(&self, parent_style: &ComputedStyle) -> ComputedStyle {
-                ComputedStyle {
-                    $(
-                        $name: match &self.$name {
-                            Property::Initial => ComputedStyle::INITIAL.$name,
-                            Property::Inherit => parent_style.$name.clone(),
-                            Property::Value(value) => value.clone(),
-                        },
-                    )*
-                }
-            }
-        }
-
-        impl ComputedStyle {
-            pub fn into_style(self) -> Style {
-                Style {
-                    $($name: Property::Value(self.$name),)*
-                }
-            }
+            $(pub $property_name: Property<$property_type>,)*
         }
     };
 }
@@ -361,7 +377,7 @@ define_style! {
     corner_radius: Pixel,
     border_width: Pixel,
     border_color: Color,
-    font: FontStack<'static>,
+    font_family: FontStack<'static>,
     font_size: Pixel,
     font_style: FontStyle,
     font_weight: FontWeight,
@@ -392,7 +408,7 @@ impl Style {
         corner_radius: Property::Initial,
         border_width: Property::Initial,
         border_color: Property::Initial,
-        font: Property::Inherit,
+        font_family: Property::Inherit,
         font_style: Property::Inherit,
         font_size: Property::Inherit,
         font_weight: Property::Inherit,
@@ -413,42 +429,690 @@ impl Default for Style {
     }
 }
 
-impl ComputedStyle {
-    pub const INITIAL: Self = Self {
-        width: Sizing::FitContent,
-        height: Sizing::FitContent,
-        min_width: 0.0,
-        min_height: 0.0,
-        max_width: Pixel::MAX,
-        max_height: Pixel::MAX,
-        flex_ratio: 1.0,
-        padding: Padding::ZERO,
-        child_spacing: 0.0,
-        layout_direction: Direction::LeftToRight,
-        child_alignment: Alignment::Start,
-        cross_axis_alignment: Alignment::Start,
-        background: Color::TRANSPARENT,
-        corner_radius: 0.0,
-        border_width: 0.0,
-        border_color: Color::TRANSPARENT,
-        font: FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
-        font_size: 16.0,
-        font_style: FontStyle::Normal,
-        font_weight: FontWeight::Normal,
-        font_width: FontWidth::NORMAL,
-        text_underline: false,
-        text_strikethrough: false,
-        text_wrap: true,
-        text_color: Color::BLACK,
-        horizontal_text_alignment: HorizontalTextAlignment::Start,
-        vertical_text_alignment: VerticalTextAlignment::Top,
-    };
+slotmap::new_key_type! {
+    struct PaddingId;
+
+    struct FontId;
 }
 
-impl Default for ComputedStyle {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
+#[bits = 2]
+enum ComputedSizing {
+    FitContent,
+    Grow,
+    Fixed,
+}
+
+struct ComputedFont {
+    family: FontStack<'static>,
+    size: Pixel,
+    style: FontStyle,
+    weight: FontWeight,
+    width: FontWidth,
+}
+
+impl Default for ComputedFont {
     #[inline]
     fn default() -> Self {
-        Self::INITIAL
+        Self {
+            family: FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
+            size: 16.0,
+            style: FontStyle::Normal,
+            weight: FontWeight::NORMAL,
+            width: FontWidth::NORMAL,
+        }
+    }
+}
+
+#[bitfield(bits = 17)]
+struct ComputedStylePackedFields {
+    width: ComputedSizing,
+    height: ComputedSizing,
+    layout_direction: Direction,
+    child_alignment: Alignment,
+    cross_axis_alignment: Alignment,
+    text_underline: bool,
+    text_strikethrough: bool,
+    text_wrap: bool,
+    horizontal_text_alignment: HorizontalTextAlignment,
+    vertical_text_alignment: VerticalTextAlignment,
+}
+
+pub struct ComputedStyle {
+    packed_fields: ComputedStylePackedFields,
+
+    min_width: Pixel,
+    min_height: Pixel,
+    max_width: Pixel,
+    max_height: Pixel,
+    flex_ratio: f32,
+    //padding: PaddingId,
+    padding: Padding,
+    child_spacing: Pixel,
+    background: Color,
+    corner_radius: Pixel,
+    border_width: Pixel,
+    border_color: Color,
+    //font: FontId,
+    font_family: FontStack<'static>,
+    font_size: Pixel,
+    font_style: FontStyle,
+    font_weight: FontWeight,
+    font_width: FontWidth,
+    text_color: Color,
+}
+
+pub(crate) struct ComputedStyleData {
+    padding: SlotMap<PaddingId, Padding>,
+    initial_padding: PaddingId,
+
+    font: SlotMap<FontId, ComputedFont>,
+    initial_font: FontId,
+}
+
+impl Default for ComputedStyleData {
+    fn default() -> Self {
+        let mut padding = SlotMap::<PaddingId, _>::default();
+        let initial_padding = padding.insert(Padding::ZERO);
+
+        let mut font = SlotMap::<FontId, _>::default();
+        let initial_font = font.insert(ComputedFont::default());
+
+        Self {
+            padding,
+            initial_padding,
+
+            font,
+            initial_font,
+        }
+    }
+}
+
+impl ComputedStyleData {
+    #[inline]
+    pub(crate) fn clear(&mut self) {
+        self.padding.retain(|id, _| id == self.initial_padding);
+        self.font.retain(|id, _| id == self.initial_font);
+    }
+}
+
+const INITIAL_SIZE: ComputedSizing = ComputedSizing::FitContent;
+const INITIAL_MIN_SIZE: Pixel = 0.0;
+const INITIAL_MAX_SIZE: Pixel = Pixel::MAX;
+const INITIAL_FLEX_RATIO: f32 = 1.0;
+const INITIAL_PADDING: Padding = Padding::ZERO;
+const INITIAL_CHILD_SPACING: Pixel = 0.0;
+const INITIAL_LAYOUT_DIRECTION: Direction = Direction::LeftToRight;
+const INITIAL_ALIGNMENT: Alignment = Alignment::Start;
+const INITIAL_BACKGROUND: Color = Color::TRANSPARENT;
+const INITIAL_CORNER_RADIUS: Pixel = 0.0;
+const INITIAL_BORDER_WIDTH: Pixel = 0.0;
+const INITIAL_BORDER_COLOR: Color = Color::TRANSPARENT;
+const INITIAL_FONT_FAMILY: FontStack<'static> =
+    FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi));
+const INITIAL_FONT_SIZE: Pixel = 16.0;
+const INITIAL_FONT_STYLE: FontStyle = FontStyle::Normal;
+const INITIAL_FONT_WEIGHT: FontWeight = FontWeight::NORMAL;
+const INITIAL_FONT_WIDTH: FontWidth = FontWidth::NORMAL;
+const INITIAL_TEXT_UNDERLINE: bool = false;
+const INITIAL_TEXT_STRIKETHROUGH: bool = false;
+const INITIAL_TEXT_WRAP: bool = true;
+const INITIAL_TEXT_COLOR: Color = Color::BLACK;
+const INITIAL_HORIZONTAL_TEXT_ALIGNMENT: HorizontalTextAlignment = HorizontalTextAlignment::Start;
+const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextAlignment::Top;
+
+impl Style {
+    pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
+        macro_rules! compute_property {
+            ($property:ident, $initial:expr) => {
+                match &self.$property {
+                    Property::Initial | Property::Inherit => const { $initial },
+                    Property::Value(value) => value.clone(),
+                }
+            };
+        }
+
+        let flex_ratio = compute_property!(flex_ratio, INITIAL_FLEX_RATIO);
+        let padding = compute_property!(padding, INITIAL_PADDING);
+        let child_spacing = compute_property!(child_spacing, INITIAL_CHILD_SPACING);
+        let layout_direction = compute_property!(layout_direction, INITIAL_LAYOUT_DIRECTION);
+        let child_alignment = compute_property!(child_alignment, INITIAL_ALIGNMENT);
+        let cross_axis_alignment = compute_property!(cross_axis_alignment, INITIAL_ALIGNMENT);
+        let background = compute_property!(background, INITIAL_BACKGROUND);
+        let corner_radius = compute_property!(corner_radius, INITIAL_CORNER_RADIUS);
+        let border_width = compute_property!(border_width, INITIAL_BORDER_WIDTH);
+        let border_color = compute_property!(border_color, INITIAL_BORDER_COLOR);
+        let font_family = compute_property!(font_family, INITIAL_FONT_FAMILY);
+        let font_style = compute_property!(font_style, INITIAL_FONT_STYLE);
+        let font_size = compute_property!(font_size, INITIAL_FONT_SIZE);
+        let font_weight = compute_property!(font_weight, INITIAL_FONT_WEIGHT);
+        let font_width = compute_property!(font_width, INITIAL_FONT_WIDTH);
+        let text_underline = compute_property!(text_underline, INITIAL_TEXT_UNDERLINE);
+        let text_strikethrough = compute_property!(text_strikethrough, INITIAL_TEXT_STRIKETHROUGH);
+        let text_wrap = compute_property!(text_wrap, INITIAL_TEXT_WRAP);
+        let text_color = compute_property!(text_color, INITIAL_TEXT_COLOR);
+        let horizontal_text_alignment =
+            compute_property!(horizontal_text_alignment, INITIAL_HORIZONTAL_TEXT_ALIGNMENT);
+        let vertical_text_alignment =
+            compute_property!(vertical_text_alignment, INITIAL_VERTICAL_TEXT_ALIGNMENT);
+
+        ComputedStyle {
+            packed_fields: ComputedStylePackedFields::new()
+                .with_width(ComputedSizing::Fixed)
+                .with_height(ComputedSizing::Fixed)
+                .with_layout_direction(layout_direction)
+                .with_child_alignment(child_alignment)
+                .with_cross_axis_alignment(cross_axis_alignment)
+                .with_text_underline(text_underline)
+                .with_text_strikethrough(text_strikethrough)
+                .with_text_wrap(text_wrap)
+                .with_horizontal_text_alignment(horizontal_text_alignment)
+                .with_vertical_text_alignment(vertical_text_alignment),
+
+            min_width: screen_size.width,
+            min_height: screen_size.height,
+            max_width: screen_size.width,
+            max_height: screen_size.height,
+            flex_ratio,
+            padding,
+            child_spacing,
+            background,
+            corner_radius,
+            border_width,
+            border_color,
+            font_family,
+            font_size,
+            font_style,
+            font_weight,
+            font_width,
+            text_color,
+        }
+    }
+
+    pub fn compute(
+        &self,
+        parent_style: &ComputedStyle,
+        //data: &mut ComputedStyleData,
+    ) -> ComputedStyle {
+        macro_rules! compute_property {
+            ($property:ident, $initial:expr) => {
+                match self.$property {
+                    Property::Initial => const { $initial },
+                    Property::Inherit => parent_style.$property,
+                    Property::Value(value) => value,
+                }
+            };
+        }
+
+        macro_rules! compute_packed_property {
+            ($property:ident, $initial:expr) => {
+                match self.$property {
+                    Property::Initial => const { $initial },
+                    Property::Inherit => parent_style.packed_fields.$property(),
+                    Property::Value(value) => value,
+                }
+            };
+        }
+
+        let mut min_width = compute_property!(min_width, INITIAL_MIN_SIZE);
+        let mut min_height = compute_property!(min_height, INITIAL_MIN_SIZE);
+        let mut max_width = compute_property!(max_width, INITIAL_MAX_SIZE);
+        let mut max_height = compute_property!(max_height, INITIAL_MAX_SIZE);
+
+        let computed_width = match self.width {
+            Property::Initial => INITIAL_SIZE,
+            Property::Inherit => match parent_style.packed_fields.width() {
+                ComputedSizing::FitContent => ComputedSizing::FitContent,
+                ComputedSizing::Grow => ComputedSizing::Grow,
+                ComputedSizing::Fixed => {
+                    min_width = parent_style.min_width;
+                    max_width = parent_style.max_width;
+                    ComputedSizing::Fixed
+                }
+            },
+            Property::Value(width) => match width {
+                Sizing::FitContent => ComputedSizing::FitContent,
+                Sizing::Grow => ComputedSizing::Grow,
+                Sizing::Fixed(fixed_width) => {
+                    min_width = fixed_width.clamp(min_width, max_width);
+                    max_width = min_width;
+                    ComputedSizing::Fixed
+                }
+            },
+        };
+
+        let computed_height = match self.height {
+            Property::Initial => INITIAL_SIZE,
+            Property::Inherit => match parent_style.packed_fields.height() {
+                ComputedSizing::FitContent => ComputedSizing::FitContent,
+                ComputedSizing::Grow => ComputedSizing::Grow,
+                ComputedSizing::Fixed => {
+                    min_height = parent_style.min_height;
+                    max_height = parent_style.max_height;
+                    ComputedSizing::Fixed
+                }
+            },
+            Property::Value(height) => match height {
+                Sizing::FitContent => ComputedSizing::FitContent,
+                Sizing::Grow => ComputedSizing::Grow,
+                Sizing::Fixed(fixed_height) => {
+                    min_height = fixed_height.clamp(min_height, max_height);
+                    max_height = min_height;
+                    ComputedSizing::Fixed
+                }
+            },
+        };
+
+        let flex_ratio = compute_property!(flex_ratio, INITIAL_FLEX_RATIO);
+        let child_spacing = compute_property!(child_spacing, INITIAL_CHILD_SPACING);
+        let background = compute_property!(background, INITIAL_BACKGROUND);
+        let corner_radius = compute_property!(corner_radius, INITIAL_CORNER_RADIUS);
+        let border_width = compute_property!(border_width, INITIAL_BORDER_WIDTH);
+        let border_color = compute_property!(border_color, INITIAL_BORDER_COLOR);
+        let text_color = compute_property!(text_color, INITIAL_TEXT_COLOR);
+
+        let layout_direction = compute_packed_property!(layout_direction, INITIAL_LAYOUT_DIRECTION);
+        let child_alignment = compute_packed_property!(child_alignment, INITIAL_ALIGNMENT);
+        let cross_axis_alignment =
+            compute_packed_property!(cross_axis_alignment, INITIAL_ALIGNMENT);
+        let text_underline = compute_packed_property!(text_underline, INITIAL_TEXT_UNDERLINE);
+        let text_strikethrough =
+            compute_packed_property!(text_strikethrough, INITIAL_TEXT_STRIKETHROUGH);
+        let text_wrap = compute_packed_property!(text_wrap, INITIAL_TEXT_WRAP);
+        let horizontal_text_alignment =
+            compute_packed_property!(horizontal_text_alignment, INITIAL_HORIZONTAL_TEXT_ALIGNMENT);
+        let vertical_text_alignment =
+            compute_packed_property!(vertical_text_alignment, INITIAL_VERTICAL_TEXT_ALIGNMENT);
+
+        let padding = compute_property!(padding, INITIAL_PADDING);
+        //let padding = match self.padding {
+        //    Property::Initial => data.initial_padding,
+        //    Property::Inherit => parent_style.padding,
+        //    Property::Value(padding) => data.padding.insert(padding),
+        //};
+
+        let font_family = match &self.font_family {
+            Property::Initial => INITIAL_FONT_FAMILY,
+            Property::Inherit => parent_style.font_family.clone(),
+            Property::Value(value) => value.clone(),
+        };
+
+        let font_size = compute_property!(font_size, INITIAL_FONT_SIZE);
+        let font_style = compute_property!(font_style, INITIAL_FONT_STYLE);
+        let font_weight = compute_property!(font_weight, INITIAL_FONT_WEIGHT);
+        let font_width = compute_property!(font_width, INITIAL_FONT_WIDTH);
+
+        ComputedStyle {
+            packed_fields: ComputedStylePackedFields::new()
+                .with_width(computed_width)
+                .with_height(computed_height)
+                .with_layout_direction(layout_direction)
+                .with_child_alignment(child_alignment)
+                .with_cross_axis_alignment(cross_axis_alignment)
+                .with_text_underline(text_underline)
+                .with_text_strikethrough(text_strikethrough)
+                .with_text_wrap(text_wrap)
+                .with_horizontal_text_alignment(horizontal_text_alignment)
+                .with_vertical_text_alignment(vertical_text_alignment),
+
+            min_width,
+            min_height,
+            max_width,
+            max_height,
+            flex_ratio,
+            padding,
+            child_spacing,
+            background,
+            corner_radius,
+            border_width,
+            border_color,
+            font_family,
+            font_size,
+            font_style,
+            font_weight,
+            font_width,
+            text_color,
+        }
+    }
+}
+
+pub struct ComputedStyleRef<'a> {
+    style: &'a ComputedStyle,
+    data: &'a ComputedStyleData,
+}
+
+/*
+impl<'a> ComputedStyleRef<'a> {
+    #[inline]
+    pub(crate) fn new(
+        style: &'a ComputedStyle,
+        data: &'a ComputedStyleData,
+    ) -> Self {
+        Self {
+            style,
+            data,
+        }
+    }
+
+    #[inline]
+    pub fn width(&self) -> Sizing {
+        match self.style.packed_fields.width() {
+            ComputedSizing::FitContent => Sizing::FitContent,
+            ComputedSizing::Grow => Sizing::Grow,
+            ComputedSizing::Fixed => Sizing::Fixed(self.style.min_width),
+        }
+    }
+
+    #[inline]
+    pub fn height(&self) -> Sizing {
+        match self.style.packed_fields.height() {
+            ComputedSizing::FitContent => Sizing::FitContent,
+            ComputedSizing::Grow => Sizing::Grow,
+            ComputedSizing::Fixed => Sizing::Fixed(self.style.min_height),
+        }
+    }
+
+    #[inline]
+    pub fn min_width(&self) -> Pixel {
+        self.style.min_width
+    }
+
+    #[inline]
+    pub fn min_height(&self) -> Pixel {
+        self.style.min_height
+    }
+
+    #[inline]
+    pub fn max_width(&self) -> Pixel {
+        self.style.max_width
+    }
+
+    #[inline]
+    pub fn max_height(&self) -> Pixel {
+        self.style.max_height
+    }
+
+    #[inline]
+    pub fn flex_ratio(&self) -> f32 {
+        self.style.flex_ratio
+    }
+
+    #[inline]
+    pub fn padding(&self) -> Padding {
+        self.data.padding[self.style.padding]
+    }
+
+    #[inline]
+    pub fn child_spacing(&self) -> Pixel {
+        self.style.child_spacing
+    }
+
+    #[inline]
+    pub fn layout_direction(&self) -> Direction {
+        self.style.packed_fields.layout_direction()
+    }
+
+    #[inline]
+    pub fn child_alignment(&self) -> Alignment {
+        self.style.packed_fields.child_alignment()
+    }
+
+    #[inline]
+    pub fn cross_axis_alignment(&self) -> Alignment {
+        self.style.packed_fields.cross_axis_alignment()
+    }
+
+    #[inline]
+    pub fn background(&self) -> Color {
+        self.style.background
+    }
+
+    #[inline]
+    pub fn corner_radius(&self) -> Pixel {
+        self.style.corner_radius
+    }
+
+    #[inline]
+    pub fn border_width(&self) -> Pixel {
+        self.style.border_width
+    }
+
+    #[inline]
+    pub fn border_color(&self) -> Color {
+        self.style.border_color
+    }
+
+    #[inline]
+    pub fn font_family(&self) -> &FontStack<'static> {
+        &self.data.font[self.style.font].family
+    }
+
+    #[inline]
+    pub fn font_size(&self) -> Pixel {
+        self.data.font[self.style.font].size
+    }
+
+    #[inline]
+    pub fn font_style(&self) -> FontStyle {
+        self.data.font[self.style.font].style
+    }
+
+    #[inline]
+    pub fn font_weight(&self) -> FontWeight {
+        self.data.font[self.style.font].weight
+    }
+
+    #[inline]
+    pub fn font_width(&self) -> FontWidth {
+        self.data.font[self.style.font].width
+    }
+
+    #[inline]
+    pub fn text_underline(&self) -> bool {
+        self.style.packed_fields.text_underline()
+    }
+
+    #[inline]
+    pub fn text_strikethrough(&self) -> bool {
+        self.style.packed_fields.text_strikethrough()
+    }
+
+    #[inline]
+    pub fn text_wrap(&self) -> bool {
+        self.style.packed_fields.text_wrap()
+    }
+
+    #[inline]
+    pub fn text_color(&self) -> Color {
+        self.style.text_color
+    }
+
+    #[inline]
+    pub fn horizontal_text_alignment(&self) -> HorizontalTextAlignment {
+        self.style.packed_fields.horizontal_text_alignment()
+    }
+
+    #[inline]
+    pub fn vertical_text_alignment(&self) -> VerticalTextAlignment {
+        self.style.packed_fields.vertical_text_alignment()
+    }
+}
+*/
+
+impl ComputedStyle {
+    #[inline]
+    pub fn width(&self) -> Sizing {
+        match self.packed_fields.width() {
+            ComputedSizing::FitContent => Sizing::FitContent,
+            ComputedSizing::Grow => Sizing::Grow,
+            ComputedSizing::Fixed => Sizing::Fixed(self.min_width),
+        }
+    }
+
+    #[inline]
+    pub fn height(&self) -> Sizing {
+        match self.packed_fields.height() {
+            ComputedSizing::FitContent => Sizing::FitContent,
+            ComputedSizing::Grow => Sizing::Grow,
+            ComputedSizing::Fixed => Sizing::Fixed(self.min_height),
+        }
+    }
+
+    #[inline]
+    pub fn min_width(&self) -> Pixel {
+        self.min_width
+    }
+
+    #[inline]
+    pub fn min_height(&self) -> Pixel {
+        self.min_height
+    }
+
+    #[inline]
+    pub fn max_width(&self) -> Pixel {
+        self.max_width
+    }
+
+    #[inline]
+    pub fn max_height(&self) -> Pixel {
+        self.max_height
+    }
+
+    #[inline]
+    pub fn flex_ratio(&self) -> f32 {
+        self.flex_ratio
+    }
+
+    #[inline]
+    pub fn padding(&self) -> Padding {
+        self.padding
+    }
+
+    #[inline]
+    pub fn child_spacing(&self) -> Pixel {
+        self.child_spacing
+    }
+
+    #[inline]
+    pub fn layout_direction(&self) -> Direction {
+        self.packed_fields.layout_direction()
+    }
+
+    #[inline]
+    pub fn child_alignment(&self) -> Alignment {
+        self.packed_fields.child_alignment()
+    }
+
+    #[inline]
+    pub fn cross_axis_alignment(&self) -> Alignment {
+        self.packed_fields.cross_axis_alignment()
+    }
+
+    #[inline]
+    pub fn background(&self) -> Color {
+        self.background
+    }
+
+    #[inline]
+    pub fn corner_radius(&self) -> Pixel {
+        self.corner_radius
+    }
+
+    #[inline]
+    pub fn border_width(&self) -> Pixel {
+        self.border_width
+    }
+
+    #[inline]
+    pub fn border_color(&self) -> Color {
+        self.border_color
+    }
+
+    #[inline]
+    pub fn font_family(&self) -> &FontStack<'static> {
+        &self.font_family
+    }
+
+    #[inline]
+    pub fn font_size(&self) -> Pixel {
+        self.font_size
+    }
+
+    #[inline]
+    pub fn font_style(&self) -> FontStyle {
+        self.font_style
+    }
+
+    #[inline]
+    pub fn font_weight(&self) -> FontWeight {
+        self.font_weight
+    }
+
+    #[inline]
+    pub fn font_width(&self) -> FontWidth {
+        self.font_width
+    }
+
+    #[inline]
+    pub fn text_underline(&self) -> bool {
+        self.packed_fields.text_underline()
+    }
+
+    #[inline]
+    pub fn text_strikethrough(&self) -> bool {
+        self.packed_fields.text_strikethrough()
+    }
+
+    #[inline]
+    pub fn text_wrap(&self) -> bool {
+        self.packed_fields.text_wrap()
+    }
+
+    #[inline]
+    pub fn text_color(&self) -> Color {
+        self.text_color
+    }
+
+    #[inline]
+    pub fn horizontal_text_alignment(&self) -> HorizontalTextAlignment {
+        self.packed_fields.horizontal_text_alignment()
+    }
+
+    #[inline]
+    pub fn vertical_text_alignment(&self) -> VerticalTextAlignment {
+        self.packed_fields.vertical_text_alignment()
+    }
+
+    pub fn as_style(&self) -> Style {
+        Style {
+            width: Property::Value(self.width()),
+            height: Property::Value(self.height()),
+            min_width: Property::Value(self.min_width()),
+            min_height: Property::Value(self.min_height()),
+            max_width: Property::Value(self.max_width()),
+            max_height: Property::Value(self.max_height()),
+            flex_ratio: Property::Value(self.flex_ratio()),
+            padding: Property::Value(self.padding()),
+            child_spacing: Property::Value(self.child_spacing()),
+            layout_direction: Property::Value(self.layout_direction()),
+            child_alignment: Property::Value(self.child_alignment()),
+            cross_axis_alignment: Property::Value(self.cross_axis_alignment()),
+            background: Property::Value(self.background()),
+            corner_radius: Property::Value(self.corner_radius()),
+            border_width: Property::Value(self.border_width()),
+            border_color: Property::Value(self.border_color()),
+            font_family: Property::Value(self.font_family().clone()),
+            font_size: Property::Value(self.font_size()),
+            font_style: Property::Value(self.font_style()),
+            font_weight: Property::Value(self.font_weight()),
+            font_width: Property::Value(self.font_width()),
+            text_underline: Property::Value(self.text_underline()),
+            text_strikethrough: Property::Value(self.text_strikethrough()),
+            text_wrap: Property::Value(self.text_wrap()),
+            text_color: Property::Value(self.text_color()),
+            horizontal_text_alignment: Property::Value(self.horizontal_text_alignment()),
+            vertical_text_alignment: Property::Value(self.vertical_text_alignment()),
+        }
     }
 }
 

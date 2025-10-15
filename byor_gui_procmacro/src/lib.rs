@@ -23,35 +23,34 @@ fn expand_field(field: &Field) -> TokenStream2 {
 
         if let PathArguments::AngleBracketed(generic_arguments) = &field_type.arguments
             && (generic_arguments.args.len() == 1)
+            && let GenericArgument::Type(inner_type) = &generic_arguments.args[0]
         {
-            if let GenericArgument::Type(inner_type) = &generic_arguments.args[0] {
-                return quote_spanned! {
-                    field.span() =>
-                    #[inline]
-                    pub fn #initial_function_name(self) -> Self {
-                        Self {
-                            #field_name: Property::Initial,
-                            ..self
-                        }
+            return quote_spanned! {
+                field.span() =>
+                #[inline]
+                pub fn #initial_function_name(self) -> Self {
+                    Self {
+                        #field_name: Property::Initial,
+                        ..self
                     }
+                }
 
-                    #[inline]
-                    pub fn #inherit_function_name(self) -> Self {
-                        Self {
-                            #field_name: Property::Inherit,
-                            ..self
-                        }
+                #[inline]
+                pub fn #inherit_function_name(self) -> Self {
+                    Self {
+                        #field_name: Property::Inherit,
+                        ..self
                     }
+                }
 
-                    #[inline]
-                    pub fn #with_function_name(self, #field_name: #inner_type) -> Self {
-                        Self {
-                            #field_name: Property::Value(#field_name),
-                            ..self
-                        }
+                #[inline]
+                pub fn #with_function_name(self, #field_name: #inner_type) -> Self {
+                    Self {
+                        #field_name: Property::Value(#field_name),
+                        ..self
                     }
-                };
-            }
+                }
+            };
         }
     }
 

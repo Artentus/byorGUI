@@ -336,7 +336,6 @@ impl ByorGui {
         self.children.get(node_id).map(Deref::deref).unwrap_or(&[])
     }
 
-    #[must_use]
     fn iter_children(&self, node_id: NodeId) -> impl Iterator<Item = (NodeId, &Node)> {
         self.child_ids(node_id)
             .iter()

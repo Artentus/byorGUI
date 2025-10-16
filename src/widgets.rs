@@ -55,20 +55,53 @@ impl ByorGuiContext<'_> {
             vertical_text_alignment: VerticalTextAlignment::Center,
         };
 
+        let left_button_uid = uid.concat(SCROLL_BAR_LEFT_BUTTON_UID);
+        let right_button_uid = uid.concat(SCROLL_BAR_RIGHT_BUTTON_UID);
+        let thumb_uid = uid.concat(SCROLL_BAR_THUMB_UID);
+
         self.insert_container_node(Some(uid), &style, |mut gui| {
             if gui
-                .button("🞀", uid.concat(SCROLL_BAR_LEFT_BUTTON_UID), &button_style)
+                .button("🞀", left_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
                 *value -= step;
             }
 
             gui.insert_node(None, &leading_space_style);
-            gui.insert_node(Some(uid.concat(SCROLL_BAR_THUMB_UID)), &thumb_style);
+
+            let response = gui.insert_node(Some(thumb_uid), &thumb_style);
+            if response.pressed(MouseButtons::PRIMARY) && !response.clicked(MouseButtons::PRIMARY) {
+                let scroll_bar_width = gui
+                    .get_previous_state(uid)
+                    .map(|state| state.inner_size.x)
+                    .unwrap_or_default();
+                let left_button_width = gui
+                    .get_previous_state(left_button_uid)
+                    .map(|state| state.inner_size.x)
+                    .unwrap_or_default();
+                let right_button_width = gui
+                    .get_previous_state(right_button_uid)
+                    .map(|state| state.inner_size.x)
+                    .unwrap_or_default();
+                let thumb_width = gui
+                    .get_previous_state(thumb_uid)
+                    .map(|state| state.inner_size.x)
+                    .unwrap_or_default();
+                let spacing = gui.parent_style().child_spacing() * 4.0;
+
+                let scroll_space = scroll_bar_width
+                    - left_button_width
+                    - right_button_width
+                    - thumb_width
+                    - spacing;
+                let drag_scroll_factor = gui.input_state().mouse_delta().x / scroll_space;
+                *value += drag_scroll_factor * (max - min);
+            }
+
             gui.insert_node(None, &trailing_space_style);
 
             if gui
-                .button("🞂", uid.concat(SCROLL_BAR_RIGHT_BUTTON_UID), &button_style)
+                .button("🞂", right_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
                 *value += step;
@@ -118,20 +151,53 @@ impl ByorGuiContext<'_> {
             vertical_text_alignment: VerticalTextAlignment::Center,
         };
 
+        let up_button_uid = uid.concat(SCROLL_BAR_UP_BUTTON_UID);
+        let down_button_uid = uid.concat(SCROLL_BAR_DOWN_BUTTON_UID);
+        let thumb_uid = uid.concat(SCROLL_BAR_THUMB_UID);
+
         self.insert_container_node(Some(uid), &style, |mut gui| {
             if gui
-                .button("🞁", uid.concat(SCROLL_BAR_UP_BUTTON_UID), &button_style)
+                .button("🞁", up_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
                 *value -= step;
             }
 
             gui.insert_node(None, &leading_space_style);
-            gui.insert_node(Some(uid.concat(SCROLL_BAR_THUMB_UID)), &thumb_style);
+
+            let response = gui.insert_node(Some(thumb_uid), &thumb_style);
+            if response.pressed(MouseButtons::PRIMARY) && !response.clicked(MouseButtons::PRIMARY) {
+                let scroll_bar_height = gui
+                    .get_previous_state(uid)
+                    .map(|state| state.inner_size.y)
+                    .unwrap_or_default();
+                let up_button_height = gui
+                    .get_previous_state(up_button_uid)
+                    .map(|state| state.inner_size.y)
+                    .unwrap_or_default();
+                let down_button_height = gui
+                    .get_previous_state(down_button_uid)
+                    .map(|state| state.inner_size.y)
+                    .unwrap_or_default();
+                let thumb_height = gui
+                    .get_previous_state(thumb_uid)
+                    .map(|state| state.inner_size.y)
+                    .unwrap_or_default();
+                let spacing = gui.parent_style().child_spacing() * 4.0;
+
+                let scroll_space = scroll_bar_height
+                    - up_button_height
+                    - down_button_height
+                    - thumb_height
+                    - spacing;
+                let drag_scroll_factor = gui.input_state().mouse_delta().y / scroll_space;
+                *value += drag_scroll_factor * (max - min);
+            }
+
             gui.insert_node(None, &trailing_space_style);
 
             if gui
-                .button("🞃", uid.concat(SCROLL_BAR_DOWN_BUTTON_UID), &button_style)
+                .button("🞃", down_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
                 *value += step;

@@ -1,6 +1,8 @@
 use super::*;
 
-pub use parley::GlyphRun;
+pub use parley::Style as TextStyle;
+pub use parley::fontique::Synthesis;
+pub use parley::{Cluster, Decoration, FontData, Glyph, GlyphRun, Run, RunMetrics};
 
 pub trait Renderer {
     type Error;

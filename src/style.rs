@@ -2,7 +2,7 @@ use super::*;
 
 use byor_gui_procmacro::StyleBuilder;
 use modular_bitfield::prelude::*;
-pub use parley::style::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
+pub use parley::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
 use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]

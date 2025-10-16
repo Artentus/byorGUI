@@ -143,8 +143,6 @@ impl Renderer for vello::Scene {
         {
             let brush = peniko::Brush::Solid(style.brush.into());
 
-            let mut x = text.offset();
-            let y = text.baseline();
             let run = text.run();
             let font = run.font();
             let font_size = run.font_size();
@@ -162,15 +160,10 @@ impl Renderer for vello::Scene {
                 .normalized_coords(run.normalized_coords())
                 .draw(
                     Fill::NonZero,
-                    text.glyphs().map(|glyph| {
-                        let gx = x + glyph.x;
-                        let gy = y - glyph.y;
-                        x += glyph.advance;
-                        vello::Glyph {
-                            id: glyph.id,
-                            x: gx,
-                            y: gy,
-                        }
+                    text.positioned_glyphs().map(|glyph| vello::Glyph {
+                        id: glyph.id,
+                        x: glyph.x,
+                        y: glyph.y,
                     }),
                 );
         }

@@ -224,6 +224,7 @@ pub struct ByorGui {
     root_style: Style,
     input_state: InputState,
     root_id: Option<NodeId>,
+    hovered_node_override: Option<Uid>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -369,7 +370,14 @@ impl ByorGui {
             let state = self.previous_state.entry(uid).or_default();
             state.referenced = true; // this state is indeed still referenced
 
-            state.hover_state = if mouse_in_bounds {
+            state.hover_state = if let Some(hovered_node_override) = self.hovered_node_override {
+                if uid == hovered_node_override {
+                    hovered_node = Some(uid);
+                    HoverState::DirectlyHovered
+                } else {
+                    HoverState::NotHovered
+                }
+            } else if mouse_in_bounds {
                 if hovered_node.is_none() {
                     hovered_node = Some(uid);
                     HoverState::DirectlyHovered
@@ -401,11 +409,19 @@ impl ByorGui {
     }
 
     fn update_previous_states(&mut self, root_id: NodeId) {
+        if self.input_state.pressed_buttons().is_empty() {
+            self.hovered_node_override = None;
+        }
+
         self.previous_state
             .values_mut()
             .for_each(|state| state.referenced = false);
-        let _ = self.compute_previous_state(root_id, true);
+        let hovered_node = self.compute_previous_state(root_id, true);
         self.previous_state.retain(|_, state| state.referenced);
+
+        if !self.input_state.pressed_buttons().is_empty() {
+            self.hovered_node_override = hovered_node;
+        }
     }
 
     pub fn frame<R>(

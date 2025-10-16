@@ -1,9 +1,13 @@
+pub mod input;
 mod layout;
+mod math;
 pub mod rendering;
 pub mod style;
 mod widgets;
 
+use input::*;
 use intmap::{IntKey, IntMap};
+pub use math::*;
 use parley::layout::Layout as TextLayout;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -52,80 +56,11 @@ mod global_cache {
     }
 }
 
-pub type Pixel = f32;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Position {
-    pub x: Pixel,
-    pub y: Pixel,
-}
-
-impl From<Pixel> for Position {
-    #[inline]
-    fn from(value: Pixel) -> Self {
-        Self { x: value, y: value }
-    }
-}
-
-impl From<(Pixel, Pixel)> for Position {
-    #[inline]
-    fn from(value: (Pixel, Pixel)) -> Self {
-        Self {
-            x: value.0,
-            y: value.1,
-        }
-    }
-}
-
-impl From<[Pixel; 2]> for Position {
-    #[inline]
-    fn from(value: [Pixel; 2]) -> Self {
-        Self {
-            x: value[0],
-            y: value[1],
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Size {
-    pub width: Pixel,
-    pub height: Pixel,
-}
-
-impl From<Pixel> for Size {
-    #[inline]
-    fn from(value: Pixel) -> Self {
-        Self {
-            width: value,
-            height: value,
-        }
-    }
-}
-
-impl From<[Pixel; 2]> for Size {
-    #[inline]
-    fn from(value: [Pixel; 2]) -> Self {
-        Self {
-            width: value[0],
-            height: value[1],
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct MouseState {
-    pub position: Position,
-    pub button1_pressed: bool,
-    pub button2_pressed: bool,
-    pub button3_pressed: bool,
-}
-
-fn point_in_rect(point: Position, position: Position, size: Size) -> bool {
+fn point_in_rect(point: Vec2, position: Vec2, size: Vec2) -> bool {
     (point.x >= position.x)
-        && (point.x <= position.x + size.width)
+        && (point.x <= position.x + size.x)
         && (point.y >= position.y)
-        && (point.y <= position.y + size.height)
+        && (point.y <= position.y + size.y)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -185,23 +120,23 @@ struct Node {
     uid: Option<Uid>,
     style: ComputedStyle,
     text_layout: Option<TextLayoutId>,
-    min_size: Size,
-    max_size: Size,
-    size: Size,
-    position: Position,
+    min_size: Vec2,
+    max_size: Vec2,
+    size: Vec2,
+    position: Vec2,
     vertical_text_offset: Pixel,
 }
 
 impl Node {
-    fn new_root(style: &Style, screen_size: Size) -> Self {
+    fn new_root(style: &Style, screen_size: Vec2) -> Self {
         Node {
             uid: None,
             style: style.compute_root(screen_size),
             text_layout: None,
-            min_size: Size::default(),
-            max_size: Size::default(),
-            size: Size::default(),
-            position: Position::default(),
+            min_size: Vec2::default(),
+            max_size: Vec2::default(),
+            size: Vec2::default(),
+            position: Vec2::default(),
             vertical_text_offset: 0.0,
         }
     }
@@ -211,23 +146,23 @@ impl Node {
             uid,
             style,
             text_layout: None,
-            min_size: Size::default(),
-            max_size: Size::default(),
-            size: Size::default(),
-            position: Position::default(),
+            min_size: Vec2::default(),
+            max_size: Vec2::default(),
+            size: Vec2::default(),
+            position: Vec2::default(),
             vertical_text_offset: 0.0,
         }
     }
 
-    fn clip_bounds(&self) -> (Position, Size) {
-        let clip_position = Position {
+    fn clip_bounds(&self) -> (Vec2, Vec2) {
+        let clip_position = Vec2 {
             x: self.position.x + self.style.padding().left,
             y: self.position.y + self.style.padding().top,
         };
 
-        let clip_size = Size {
-            width: self.size.width - self.style.padding().left - self.style.padding().right,
-            height: self.size.height - self.style.padding().top - self.style.padding().bottom,
+        let clip_size = Vec2 {
+            x: self.size.x - self.style.padding().left - self.style.padding().right,
+            y: self.size.y - self.style.padding().top - self.style.padding().bottom,
         };
 
         (clip_position, clip_size)
@@ -259,8 +194,8 @@ pub struct PreviousState {
     referenced: bool,
 
     pub hovered: bool,
-    pub inner_size: Size,
-    pub content_size: Size,
+    pub inner_size: Vec2,
+    pub content_size: Vec2,
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -276,17 +211,34 @@ pub struct ByorGui {
     previous_state: IntMap<Uid, PreviousState>,
 
     root_style: Style,
-    prev_mouse_state: MouseState,
-    mouse_state: MouseState,
+    input_state: InputState,
     root_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeResponse<R> {
     pub hovered: bool,
-    pub pressed: bool,
-    pub clicked: bool,
+    pub pressed_buttons: MouseButtons,
+    pub clicked_buttons: MouseButtons,
+    pub released_buttons: MouseButtons,
     pub result: R,
+}
+
+impl<R> NodeResponse<R> {
+    #[inline]
+    pub fn pressed(&self, buttons: MouseButtons) -> bool {
+        self.pressed_buttons.contains(buttons)
+    }
+
+    #[inline]
+    pub fn clicked(&self, buttons: MouseButtons) -> bool {
+        self.clicked_buttons.contains(buttons)
+    }
+
+    #[inline]
+    pub fn released(&self, buttons: MouseButtons) -> bool {
+        self.released_buttons.contains(buttons)
+    }
 }
 
 struct ChildMutIter<'a> {
@@ -360,7 +312,7 @@ impl ByorGui {
         let mut hovered_node = None;
 
         let node = &self.nodes[node_id];
-        let mouse_position = self.mouse_state.position;
+        let mouse_position = self.input_state.mouse_position();
         let mouse_in_bounds =
             mouse_in_parent_clip_bounds && point_in_rect(mouse_position, node.position, node.size);
 
@@ -380,14 +332,11 @@ impl ByorGui {
 
         let node = &self.nodes[node_id];
         if let Some(uid) = node.uid {
-            let mut total_content_size = Size::default();
-            let mut max_content_size = Size::default();
+            let mut total_content_size = Vec2::default();
+            let mut max_content_size = Vec2::default();
             for (_, child) in self.iter_children(node_id) {
-                total_content_size.width += child.size.width;
-                total_content_size.height += child.size.height;
-
-                max_content_size.width = max_content_size.width.max(child.size.width);
-                max_content_size.height = max_content_size.height.max(child.size.height);
+                total_content_size += child.size;
+                max_content_size = max_content_size.max(child.size);
             }
 
             let total_spacing =
@@ -403,19 +352,19 @@ impl ByorGui {
                 false
             };
 
-            state.inner_size = Size {
-                width: node.size.width - node.style.padding().left - node.style.padding().right,
-                height: node.size.height - node.style.padding().top - node.style.padding().bottom,
+            state.inner_size = Vec2 {
+                x: node.size.x - node.style.padding().left - node.style.padding().right,
+                y: node.size.y - node.style.padding().top - node.style.padding().bottom,
             };
 
             state.content_size = match node.style.layout_direction() {
-                Direction::LeftToRight => Size {
-                    width: total_content_size.width + total_spacing,
-                    height: max_content_size.height,
+                Direction::LeftToRight => Vec2 {
+                    x: total_content_size.x + total_spacing,
+                    y: max_content_size.y,
                 },
-                Direction::TopToBottom => Size {
-                    width: max_content_size.width,
-                    height: total_content_size.height + total_spacing,
+                Direction::TopToBottom => Vec2 {
+                    x: max_content_size.x,
+                    y: total_content_size.y + total_spacing,
                 },
             };
         }
@@ -433,7 +382,7 @@ impl ByorGui {
 
     pub fn frame<R>(
         &mut self,
-        screen_size: Size,
+        screen_size: Vec2,
         mouse_state: MouseState,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> R {
@@ -441,8 +390,7 @@ impl ByorGui {
         self.children.clear();
         self.text_layouts.clear();
 
-        self.prev_mouse_state = self.mouse_state;
-        self.mouse_state = mouse_state;
+        self.input_state.update(mouse_state);
 
         let root = Node::new_root(self.root_style(), screen_size);
         let root_id = self.nodes.insert(root);
@@ -488,13 +436,26 @@ impl ByorGui {
             .and_then(|uid| self.previous_state.get(uid))
             .map(|previous_state| previous_state.hovered)
             .unwrap_or_default();
-        let pressed = hovered && self.mouse_state.button1_pressed;
-        let clicked = pressed && !self.prev_mouse_state.button1_pressed;
+
+        let (pressed_buttons, clicked_buttons, released_buttons) = if hovered {
+            (
+                self.input_state.pressed_buttons(),
+                self.input_state.clicked_buttons(),
+                self.input_state.released_buttons(),
+            )
+        } else {
+            (
+                MouseButtons::empty(),
+                MouseButtons::empty(),
+                MouseButtons::empty(),
+            )
+        };
 
         NodeResponse {
             hovered,
-            pressed,
-            clicked,
+            pressed_buttons,
+            clicked_buttons,
+            released_buttons,
             result,
         }
     }
@@ -563,10 +524,6 @@ impl ByorGuiContext<'_> {
 
     pub fn parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
-        //ComputedStyleRef::new(
-        //    &self.gui.nodes[self.parent_id].style,
-        //    &self.gui.style_data,
-        //)
     }
 
     pub fn get_persistent_state(&self, uid: Uid) -> &PersistentState {

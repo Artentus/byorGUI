@@ -36,7 +36,7 @@ impl Direction {
     }
 }
 
-impl Position {
+impl Vec2 {
     #[inline]
     fn along_axis(self, axis: Axis) -> Pixel {
         match axis {
@@ -50,24 +50,6 @@ impl Position {
         match axis {
             Axis::X => &mut self.x,
             Axis::Y => &mut self.y,
-        }
-    }
-}
-
-impl Size {
-    #[inline]
-    fn along_axis(self, axis: Axis) -> Pixel {
-        match axis {
-            Axis::X => self.width,
-            Axis::Y => self.height,
-        }
-    }
-
-    #[inline]
-    fn along_axis_mut(&mut self, axis: Axis) -> &mut Pixel {
-        match axis {
-            Axis::X => &mut self.width,
-            Axis::Y => &mut self.height,
         }
     }
 }
@@ -122,7 +104,7 @@ fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
     use parley::AlignmentOptions as TextAlignmentOptions;
 
     let horizontal_padding = node.style.padding().left + node.style.padding().right;
-    let wrap_width = node.size.width - horizontal_padding;
+    let wrap_width = node.size.x - horizontal_padding;
 
     text_layout.break_all_lines(node.style.text_wrap().then_some(wrap_width));
     text_layout.align(
@@ -192,12 +174,12 @@ impl ByorGui {
                         .ceil()
                         .clamp(min_width, max_size);
 
-                    node.min_size.width = if node.style.text_wrap() {
+                    node.min_size.x = if node.style.text_wrap() {
                         min_width
                     } else {
                         width
                     };
-                    node.size.width = width;
+                    node.size.x = width;
                 }
                 Axis::Y => {
                     wrap_text(node, text_layout);
@@ -205,8 +187,8 @@ impl ByorGui {
                     let height = (text_layout.height() + padding)
                         .ceil()
                         .clamp(min_size, max_size);
-                    node.min_size.height = height;
-                    node.size.height = height;
+                    node.min_size.y = height;
+                    node.size.y = height;
                 }
             }
 
@@ -382,14 +364,14 @@ impl ByorGui {
             parent.vertical_text_offset = match parent.style.vertical_text_alignment() {
                 VerticalTextAlignment::Top => 0.0,
                 VerticalTextAlignment::Center => {
-                    (parent.size.height
+                    (parent.size.y
                         - text_layout.height()
                         - parent.style.padding().top
                         - parent.style.padding().bottom)
                         / 2.0
                 }
                 VerticalTextAlignment::Bottom => {
-                    parent.size.height
+                    parent.size.y
                         - text_layout.height()
                         - parent.style.padding().top
                         - parent.style.padding().bottom

@@ -5,14 +5,14 @@ pub use parley::GlyphRun;
 pub trait Renderer {
     type Error;
 
-    fn push_clip_rect(&mut self, position: Position, size: Size) -> Result<(), Self::Error>;
+    fn push_clip_rect(&mut self, position: Vec2, size: Vec2) -> Result<(), Self::Error>;
 
     fn pop_clip_rect(&mut self) -> Result<(), Self::Error>;
 
     fn draw_rect(
         &mut self,
-        position: Position,
-        size: Size,
+        position: Vec2,
+        size: Vec2,
         corner_radius: f32,
         stroke_width: f32,
         color: Color,
@@ -20,17 +20,13 @@ pub trait Renderer {
 
     fn fill_rect(
         &mut self,
-        position: Position,
-        size: Size,
+        position: Vec2,
+        size: Vec2,
         corner_radius: f32,
         color: Color,
     ) -> Result<(), Self::Error>;
 
-    fn draw_text(
-        &mut self,
-        text: GlyphRun<'_, Color>,
-        position: Position,
-    ) -> Result<(), Self::Error>;
+    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2) -> Result<(), Self::Error>;
 }
 
 impl ByorGui {
@@ -60,7 +56,7 @@ impl ByorGui {
                 for item in line.items() {
                     match item {
                         parley::PositionedLayoutItem::GlyphRun(text) => {
-                            let text_position = Position {
+                            let text_position = Vec2 {
                                 x: node.position.x + node.style.padding().left,
                                 y: node.position.y
                                     + node.style.padding().top

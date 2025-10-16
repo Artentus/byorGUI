@@ -526,7 +526,7 @@ fn compute_font(style: &Style, parent_style: &ComputedStyle) -> ComputedFont {
 }
 
 impl Style {
-    pub fn compute_root(&self, screen_size: Size) -> ComputedStyle {
+    pub fn compute_root(&self, screen_size: Vec2) -> ComputedStyle {
         macro_rules! compute_property {
             ($property:ident, $initial:expr) => {
                 match &self.$property {
@@ -583,10 +583,10 @@ impl Style {
                 .with_horizontal_text_alignment(horizontal_text_alignment)
                 .with_vertical_text_alignment(vertical_text_alignment),
 
-            min_width: screen_size.width,
-            min_height: screen_size.height,
-            max_width: screen_size.width,
-            max_height: screen_size.height,
+            min_width: screen_size.x,
+            min_height: screen_size.y,
+            max_width: screen_size.x,
+            max_height: screen_size.y,
             flex_ratio,
             padding,
             child_spacing,

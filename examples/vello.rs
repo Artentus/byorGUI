@@ -1,10 +1,11 @@
 use anyhow::{Result, format_err};
+use byor_gui::input::*;
 use byor_gui::style::*;
 use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{Renderer, RendererOptions, Scene};
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
@@ -28,6 +29,7 @@ struct ExampleApp {
     context: RenderContext,
     window: Option<Arc<Window>>,
     state: Option<RenderState>,
+    required_redraws: u8,
     gui: ByorGui,
     mouse_state: MouseState,
 }
@@ -44,6 +46,7 @@ impl ExampleApp {
             context: RenderContext::new(),
             window: None,
             state: None,
+            required_redraws: 0,
             gui,
             mouse_state: MouseState::default(),
         }
@@ -125,32 +128,44 @@ impl winit::application::ApplicationHandler for ExampleApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ScaleFactorChanged { .. } => {
+                self.required_redraws = 1;
                 window.request_redraw();
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 use winit::event::MouseButton;
 
-                match button {
-                    MouseButton::Left => self.mouse_state.button1_pressed = state.is_pressed(),
-                    MouseButton::Right => self.mouse_state.button2_pressed = state.is_pressed(),
-                    MouseButton::Middle => self.mouse_state.button3_pressed = state.is_pressed(),
-                    _ => (),
+                let buttons = match button {
+                    MouseButton::Left => MouseButtons::PRIMARY,
+                    MouseButton::Right => MouseButtons::SECONDARY,
+                    MouseButton::Middle => MouseButtons::MIDDLE,
+                    MouseButton::Back => MouseButtons::BACK,
+                    MouseButton::Forward => MouseButtons::FORWARD,
+                    MouseButton::Other(_) => MouseButtons::empty(),
+                };
+
+                match state {
+                    ElementState::Pressed => self.mouse_state.pressed_buttons |= buttons,
+                    ElementState::Released => self.mouse_state.pressed_buttons &= !buttons,
                 }
 
+                self.required_redraws = 2;
                 window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                self.required_redraws = 2;
                 window.request_redraw();
             }
             WindowEvent::CursorEntered { .. } | WindowEvent::CursorLeft { .. } => {
+                self.required_redraws = 2;
                 window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.mouse_state.position = Position {
+                self.mouse_state.position = Vec2 {
                     x: position.x as Pixel,
                     y: position.y as Pixel,
                 };
 
+                self.required_redraws = 2;
                 window.request_redraw();
             }
             WindowEvent::Resized(size) => {
@@ -159,6 +174,8 @@ impl winit::application::ApplicationHandler for ExampleApp {
                         self.context
                             .resize_surface(&mut state.surface, size.width, size.height);
                         state.surface_valid = true;
+
+                        self.required_redraws = 1;
                         window.request_redraw();
                     } else {
                         state.surface_valid = false;
@@ -177,9 +194,9 @@ impl winit::application::ApplicationHandler for ExampleApp {
                     && surface_valid
                 {
                     self.gui.frame(
-                        Size {
-                            width: surface.config.width as Pixel,
-                            height: surface.config.height as Pixel,
+                        Vec2 {
+                            x: surface.config.width as Pixel,
+                            y: surface.config.height as Pixel,
                         },
                         self.mouse_state,
                         gui,
@@ -225,6 +242,11 @@ impl winit::application::ApplicationHandler for ExampleApp {
                     frame_buffer.present();
 
                     device_handle.device.poll(PollType::Poll).unwrap();
+                }
+
+                self.required_redraws = self.required_redraws.saturating_sub(1);
+                if self.required_redraws > 0 {
+                    window.request_redraw();
                 }
             }
             _ => (),

@@ -55,8 +55,7 @@ impl ByorGuiContext<'_> {
         };
 
         let max_scroll = if let Some(previous_state) = self.get_previous_state(uid) {
-            let available_width =
-                previous_state.inner_size.width - previous_state.content_size.width;
+            let available_width = previous_state.inner_size.x - previous_state.content_size.x;
             (-available_width).max(0.0)
         } else {
             0.0
@@ -107,7 +106,7 @@ impl ByorGuiContext<'_> {
                             uid.concat(SCROLL_BAR_LEFT_BUTTON_UID),
                             &scroll_bar_button_style,
                         )
-                        .clicked
+                        .clicked(MouseButtons::PRIMARY)
                     {
                         scroll_delta -= 10.0;
                     }
@@ -126,7 +125,7 @@ impl ByorGuiContext<'_> {
                             uid.concat(SCROLL_BAR_RIGHT_BUTTON_UID),
                             &scroll_bar_button_style,
                         )
-                        .clicked
+                        .clicked(MouseButtons::PRIMARY)
                     {
                         scroll_delta += 10.0;
                     }

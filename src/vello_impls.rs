@@ -4,9 +4,9 @@ use vello::kurbo::{self, Affine, Line, Rect, Stroke};
 use vello::peniko::color::{AlphaColor, Srgb};
 use vello::peniko::{self, Fill};
 
-impl From<Position> for kurbo::Point {
+impl From<Vec2> for kurbo::Point {
     #[inline]
-    fn from(value: Position) -> Self {
+    fn from(value: Vec2) -> Self {
         Self {
             x: value.x.into(),
             y: value.y.into(),
@@ -14,9 +14,9 @@ impl From<Position> for kurbo::Point {
     }
 }
 
-impl From<Position> for kurbo::Vec2 {
+impl From<Vec2> for kurbo::Vec2 {
     #[inline]
-    fn from(value: Position) -> Self {
+    fn from(value: Vec2) -> Self {
         Self {
             x: value.x.into(),
             y: value.y.into(),
@@ -24,22 +24,12 @@ impl From<Position> for kurbo::Vec2 {
     }
 }
 
-impl From<Size> for kurbo::Size {
+impl From<Vec2> for kurbo::Size {
     #[inline]
-    fn from(value: Size) -> Self {
+    fn from(value: Vec2) -> Self {
         Self {
-            width: value.width.into(),
-            height: value.height.into(),
-        }
-    }
-}
-
-impl From<Size> for kurbo::Vec2 {
-    #[inline]
-    fn from(value: Size) -> Self {
-        Self {
-            x: value.width.into(),
-            y: value.height.into(),
+            width: value.x.into(),
+            height: value.y.into(),
         }
     }
 }
@@ -54,7 +44,7 @@ impl From<Color> for AlphaColor<Srgb> {
 impl Renderer for vello::Scene {
     type Error = std::convert::Infallible;
 
-    fn push_clip_rect(&mut self, position: Position, size: Size) -> Result<(), Self::Error> {
+    fn push_clip_rect(&mut self, position: Vec2, size: Vec2) -> Result<(), Self::Error> {
         let rect = Rect::from_origin_size(position, size);
         self.push_clip_layer(Affine::IDENTITY, &rect);
 
@@ -69,8 +59,8 @@ impl Renderer for vello::Scene {
 
     fn draw_rect(
         &mut self,
-        position: Position,
-        size: Size,
+        position: Vec2,
+        size: Vec2,
         corner_radius: f32,
         stroke_width: f32,
         color: Color,
@@ -101,8 +91,8 @@ impl Renderer for vello::Scene {
 
     fn fill_rect(
         &mut self,
-        position: Position,
-        size: Size,
+        position: Vec2,
+        size: Vec2,
         corner_radius: f32,
         color: Color,
     ) -> Result<(), Self::Error> {
@@ -124,11 +114,7 @@ impl Renderer for vello::Scene {
         Ok(())
     }
 
-    fn draw_text(
-        &mut self,
-        text: GlyphRun<'_, Color>,
-        position: Position,
-    ) -> Result<(), Self::Error> {
+    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2) -> Result<(), Self::Error> {
         let style = text.style();
         let transform = Affine::translate(position);
 

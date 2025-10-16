@@ -277,16 +277,33 @@ impl winit::application::ApplicationHandler for ExampleApp {
 }
 
 fn gui(mut gui: ByorGuiContext<'_>) {
-    gui.insert_node(
-        None,
+    gui.vertical_scroll_view(
+        const { Uid::new(b"vertical_scroll_view") },
         &style! {
-            width: 100.0,
             height: Sizing::Grow,
+            max_height: 600.0,
+            flex_ratio: 2.0,
+            padding: 5.0,
+            child_alignment: Alignment::End,
+            cross_axis_alignment: Alignment::Center,
+            child_spacing: 5.0,
+            layout_direction: Direction::TopToBottom,
+        },
+        |mut gui| {
+            for _ in 0..5 {
+                gui.insert_node(
+                    None,
+                    &style! {
+                        width: 100.0,
+                        height: 100.0,
+                    },
+                );
+            }
         },
     );
 
     gui.horizontal_scroll_view(
-        const { Uid::new(b"scroll_view") },
+        const { Uid::new(b"horizontal_scroll_view") },
         &style! {
             width: Sizing::Grow,
             max_width: 600.0,
@@ -295,6 +312,7 @@ fn gui(mut gui: ByorGuiContext<'_>) {
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,
             child_spacing: 5.0,
+            layout_direction: Direction::LeftToRight,
         },
         |mut gui| {
             for _ in 0..5 {

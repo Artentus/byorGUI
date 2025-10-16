@@ -5,8 +5,9 @@ use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{Renderer, RendererOptions, Scene};
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, Modifiers, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
 fn main() -> Result<()> {
@@ -32,6 +33,7 @@ struct ExampleApp {
     required_redraws: u8,
     gui: ByorGui,
     mouse_state: MouseState,
+    modifiers: Modifiers,
 }
 
 impl ExampleApp {
@@ -49,6 +51,7 @@ impl ExampleApp {
             required_redraws: 0,
             gui,
             mouse_state: MouseState::default(),
+            modifiers: Modifiers::default(),
         }
     }
 }
@@ -131,6 +134,9 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 self.required_redraws = 1;
                 window.request_redraw();
             }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers;
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 use winit::event::MouseButton;
 
@@ -152,6 +158,21 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                let delta = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        if self.modifiers.state().contains(ModifiersState::CONTROL) {
+                            Vec2 { x: y, y: x } * PIXELS_PER_SCROLL_LINE
+                        } else {
+                            Vec2 { x, y } * PIXELS_PER_SCROLL_LINE
+                        }
+                    }
+                    MouseScrollDelta::PixelDelta(physical_position) => Vec2 {
+                        x: physical_position.x as Pixel,
+                        y: physical_position.y as Pixel,
+                    },
+                };
+                self.mouse_state.scroll_delta += delta;
+
                 self.required_redraws = 2;
                 window.request_redraw();
             }
@@ -201,6 +222,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                         self.mouse_state,
                         gui,
                     );
+                    self.mouse_state.scroll_delta = Vec2::ZERO;
 
                     let mut scene = Scene::new();
                     infallible!(self.gui.render(&mut scene));

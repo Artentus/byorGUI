@@ -90,16 +90,19 @@ impl ByorGuiContext<'_> {
         };
 
         self.insert_container_node(None, &scroll_view_style, |mut gui| {
+            let mut scroll_delta = 0.0;
+
             // scroll container
-            let result = gui
-                .insert_container_node(Some(uid), &scroll_container_style, contents)
-                .result;
+            let response = gui.insert_container_node(Some(uid), &scroll_container_style, contents);
+
+            if response.is_hovered() {
+                // scroll is subtractive in layouting, so we need to subtract here as well
+                scroll_delta -= gui.input_state().scroll_delta().x;
+            }
 
             // scroll bar
             if scroll_factor.is_some() || opposite_scroll_factor.is_some() {
                 gui.insert_container_node(None, &scroll_bar_style, |mut gui| {
-                    let mut scroll_delta = 0.0;
-
                     if gui
                         .button(
                             "<",
@@ -108,7 +111,7 @@ impl ByorGuiContext<'_> {
                         )
                         .clicked(MouseButtons::PRIMARY)
                     {
-                        scroll_delta -= 10.0;
+                        scroll_delta -= PIXELS_PER_SCROLL_LINE;
                     }
 
                     gui.insert_node(None, &scroll_bar_leading_space_style);
@@ -127,16 +130,18 @@ impl ByorGuiContext<'_> {
                         )
                         .clicked(MouseButtons::PRIMARY)
                     {
-                        scroll_delta += 10.0;
+                        scroll_delta += PIXELS_PER_SCROLL_LINE;
                     }
-
-                    let persistent_state = gui.get_persistent_state_mut(uid);
-                    let scroll = persistent_state.horizontal_scroll.get_or_insert_default();
-                    *scroll = (*scroll + scroll_delta).clamp(0.0, max_scroll);
                 });
             }
 
-            result
+            if scroll_delta != 0.0 {
+                let persistent_state = gui.get_persistent_state_mut(uid);
+                let scroll = persistent_state.horizontal_scroll.get_or_insert_default();
+                *scroll = (*scroll + scroll_delta).clamp(0.0, max_scroll);
+            }
+
+            response.result
         })
         .result
     }

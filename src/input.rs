@@ -1,5 +1,7 @@
-use crate::Vec2;
+use crate::{Pixel, Vec2};
 use bitflags::bitflags;
+
+pub const PIXELS_PER_SCROLL_LINE: Pixel = 40.0;
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy)]
@@ -16,6 +18,7 @@ bitflags! {
 pub struct MouseState {
     pub position: Vec2,
     pub pressed_buttons: MouseButtons,
+    pub scroll_delta: Vec2,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -25,6 +28,8 @@ pub struct InputState {
 
     prev_pressed_buttons: MouseButtons,
     pressed_buttons: MouseButtons,
+
+    scroll_delta: Vec2,
 }
 
 impl InputState {
@@ -34,6 +39,8 @@ impl InputState {
 
         self.prev_pressed_buttons = self.pressed_buttons;
         self.pressed_buttons = mouse_state.pressed_buttons;
+
+        self.scroll_delta = mouse_state.scroll_delta;
     }
 
     #[inline]
@@ -59,5 +66,10 @@ impl InputState {
     #[inline]
     pub fn released_buttons(&self) -> MouseButtons {
         self.prev_pressed_buttons & !self.pressed_buttons
+    }
+
+    #[inline]
+    pub fn scroll_delta(&self) -> Vec2 {
+        self.scroll_delta
     }
 }

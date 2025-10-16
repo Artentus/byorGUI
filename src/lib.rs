@@ -188,12 +188,23 @@ impl Default for PersistentState {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HoverState {
+    /// The node is not hovered
+    #[default]
+    NotHovered,
+    /// The node or one of its children is hovered
+    Hovered,
+    /// The node is hovered but none of its children are hovered
+    DirectlyHovered,
+}
+
 #[derive(Default)]
 pub struct PreviousState {
     /// Keeps track of whether this state still needs to be stored
     referenced: bool,
 
-    pub hovered: bool,
+    pub hover_state: HoverState,
     pub inner_size: Vec2,
     pub content_size: Vec2,
 }
@@ -217,7 +228,7 @@ pub struct ByorGui {
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeResponse<R> {
-    pub hovered: bool,
+    pub hover_state: HoverState,
     pub pressed_buttons: MouseButtons,
     pub clicked_buttons: MouseButtons,
     pub released_buttons: MouseButtons,
@@ -225,6 +236,19 @@ pub struct NodeResponse<R> {
 }
 
 impl<R> NodeResponse<R> {
+    #[inline]
+    pub fn is_hovered(&self) -> bool {
+        matches!(
+            self.hover_state,
+            HoverState::Hovered | HoverState::DirectlyHovered,
+        )
+    }
+
+    #[inline]
+    pub fn is_directly_hovered(&self) -> bool {
+        matches!(self.hover_state, HoverState::DirectlyHovered)
+    }
+
     #[inline]
     pub fn pressed(&self, buttons: MouseButtons) -> bool {
         self.pressed_buttons.contains(buttons)
@@ -345,11 +369,15 @@ impl ByorGui {
             let state = self.previous_state.entry(uid).or_default();
             state.referenced = true; // this state is indeed still referenced
 
-            state.hovered = if mouse_in_bounds && hovered_node.is_none() {
-                hovered_node = Some(uid);
-                true
+            state.hover_state = if mouse_in_bounds {
+                if hovered_node.is_none() {
+                    hovered_node = Some(uid);
+                    HoverState::DirectlyHovered
+                } else {
+                    HoverState::Hovered
+                }
             } else {
-                false
+                HoverState::NotHovered
             };
 
             state.inner_size = Vec2 {
@@ -432,27 +460,28 @@ impl ByorGui {
 
     #[must_use]
     fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
-        let hovered = uid
+        let hover_state = uid
             .and_then(|uid| self.previous_state.get(uid))
-            .map(|previous_state| previous_state.hovered)
+            .map(|previous_state| previous_state.hover_state)
             .unwrap_or_default();
 
-        let (pressed_buttons, clicked_buttons, released_buttons) = if hovered {
-            (
-                self.input_state.pressed_buttons(),
-                self.input_state.clicked_buttons(),
-                self.input_state.released_buttons(),
-            )
-        } else {
-            (
-                MouseButtons::empty(),
-                MouseButtons::empty(),
-                MouseButtons::empty(),
-            )
-        };
+        let (pressed_buttons, clicked_buttons, released_buttons) =
+            if hover_state == HoverState::DirectlyHovered {
+                (
+                    self.input_state.pressed_buttons(),
+                    self.input_state.clicked_buttons(),
+                    self.input_state.released_buttons(),
+                )
+            } else {
+                (
+                    MouseButtons::empty(),
+                    MouseButtons::empty(),
+                    MouseButtons::empty(),
+                )
+            };
 
         NodeResponse {
-            hovered,
+            hover_state,
             pressed_buttons,
             clicked_buttons,
             released_buttons,
@@ -524,6 +553,11 @@ impl ByorGuiContext<'_> {
 
     pub fn parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
+    }
+
+    #[inline]
+    pub fn input_state(&self) -> &InputState {
+        &self.gui.input_state
     }
 
     pub fn get_persistent_state(&self, uid: Uid) -> &PersistentState {

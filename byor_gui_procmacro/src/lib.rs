@@ -44,9 +44,9 @@ fn expand_field(field: &Field) -> TokenStream2 {
                 }
 
                 #[inline]
-                pub fn #with_function_name(self, #field_name: #inner_type) -> Self {
+                pub fn #with_function_name(self, #field_name: impl Into<#inner_type>) -> Self {
                     Self {
-                        #field_name: Property::Value(#field_name),
+                        #field_name: Property::Value(#field_name.into()),
                         ..self
                     }
                 }

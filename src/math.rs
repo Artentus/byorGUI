@@ -156,17 +156,14 @@ impl<U: Unit> Default for Float<U> {
     }
 }
 
+impl<U: Unit> Copy for Float<U> {}
+
 impl<U: Unit> Clone for Float<U> {
     #[inline]
     fn clone(&self) -> Self {
-        Self {
-            value: self.value,
-            _unit: PhantomData,
-        }
+        *self
     }
 }
-
-impl<U: Unit> Copy for Float<U> {}
 
 impl<U: Unit> fmt::Debug for Float<U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -384,17 +381,14 @@ impl<U: Unit> Default for Vec2<U> {
     }
 }
 
+impl<U: Unit> Copy for Vec2<U> {}
+
 impl<U: Unit> Clone for Vec2<U> {
     #[inline]
     fn clone(&self) -> Self {
-        Self {
-            x: self.x,
-            y: self.y,
-        }
+        *self
     }
 }
-
-impl<U: Unit> Copy for Vec2<U> {}
 
 impl<U: Unit> fmt::Debug for Vec2<U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

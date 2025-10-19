@@ -14,6 +14,7 @@ use smallbox::smallbox;
 use smallvec::SmallVec;
 use std::any::Any;
 use std::ops::Deref;
+use style::computed::*;
 use style::*;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;

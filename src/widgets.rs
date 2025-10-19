@@ -229,7 +229,7 @@ impl ByorGuiContext<'_> {
                             value: scroll.value(),
                             min: 0.0,
                             max: max_scroll.value(),
-                            step: PIXELS_PER_SCROLL_LINE.value(),
+                            step: (POINTS_PER_SCROLL_LINE * gui.scale_factor()).value(),
                         },
                         uid.concat(SCROLL_BAR_UID),
                         &scroll_bar_style,

@@ -1,7 +1,7 @@
-use crate::{Float, Pixel, Vec2};
+use crate::{Float, Pixel, Point, Vec2};
 use bitflags::bitflags;
 
-pub const PIXELS_PER_SCROLL_LINE: Float<Pixel> = Float::new(40.0);
+pub const POINTS_PER_SCROLL_LINE: Float<Point> = Float::new(40.0);
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy)]

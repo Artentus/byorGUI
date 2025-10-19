@@ -161,15 +161,18 @@ impl winit::application::ApplicationHandler for ExampleApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
+                        let pixels_per_scroll_line =
+                            POINTS_PER_SCROLL_LINE.to_pixel(window.scale_factor() as f32, 1.0);
+
                         if self.modifiers.state().contains(ModifiersState::CONTROL) {
                             Vec2 {
-                                x: y * PIXELS_PER_SCROLL_LINE,
-                                y: x * PIXELS_PER_SCROLL_LINE,
+                                x: y * pixels_per_scroll_line,
+                                y: x * pixels_per_scroll_line,
                             }
                         } else {
                             Vec2 {
-                                x: x * PIXELS_PER_SCROLL_LINE,
-                                y: y * PIXELS_PER_SCROLL_LINE,
+                                x: x * pixels_per_scroll_line,
+                                y: y * pixels_per_scroll_line,
                             }
                         }
                     }

@@ -10,6 +10,14 @@ const SCROLL_BAR_DEC_BUTTON_UID: Uid = Uid::new(b"##scroll_bar_dec_button");
 const SCROLL_BAR_INC_BUTTON_UID: Uid = Uid::new(b"##scroll_bar_inc_button");
 const SCROLL_BAR_THUMB_UID: Uid = Uid::new(b"##scroll_bar_thumb");
 
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollBarParams {
+    pub value: f32,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+}
+
 impl ByorGuiContext<'_> {
     pub fn button(&mut self, text: &str, uid: Uid, style: &Style) -> NodeResponse<()> {
         self.insert_text_node(Some(uid), style, text)
@@ -18,20 +26,24 @@ impl ByorGuiContext<'_> {
     pub fn scroll_bar(
         &mut self,
         axis: Axis,
-        value: &mut f32,
-        min: f32,
-        max: f32,
-        step: f32,
+        params: ScrollBarParams,
         uid: Uid,
         style: &Style,
-    ) {
+    ) -> f32 {
+        let ScrollBarParams {
+            value,
+            min,
+            max,
+            step,
+        } = params;
+
         let style = style
             .clone()
             .with_layout_direction(axis.primary_direction())
             .with_child_spacing(SCROLL_BAR_SPACING / 2.0);
 
-        *value = (*value).clamp(min, max);
-        let factor = (*value - min) / (max - min);
+        let mut value = value.clamp(min, max);
+        let factor = (value - min) / (max - min);
 
         let leading_space_style = style! { flex_ratio: factor }
             .with_size_along_axis(axis, Sizing::Grow)
@@ -62,7 +74,7 @@ impl ByorGuiContext<'_> {
                 .button("<", dec_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
-                *value -= step;
+                value -= step;
             }
 
             gui.insert_node(None, &leading_space_style);
@@ -120,7 +132,7 @@ impl ByorGuiContext<'_> {
                     - padding[0]
                     - spacing * 2.0;
 
-                *value = (scroll_position / scroll_space) * (max - min);
+                value = (scroll_position / scroll_space) * (max - min);
             }
 
             gui.insert_node(None, &trailing_space_style);
@@ -129,37 +141,26 @@ impl ByorGuiContext<'_> {
                 .button(">", inc_button_uid, &button_style)
                 .clicked(MouseButtons::PRIMARY)
             {
-                *value += step;
+                value += step;
             }
         });
 
-        *value = (*value).clamp(min, max);
+        value.clamp(min, max)
     }
 
     #[inline]
     pub fn horizontal_scroll_bar(
         &mut self,
-        value: &mut f32,
-        min: f32,
-        max: f32,
-        step: f32,
+        params: ScrollBarParams,
         uid: Uid,
         style: &Style,
-    ) {
-        self.scroll_bar(Axis::X, value, min, max, step, uid, style);
+    ) -> f32 {
+        self.scroll_bar(Axis::X, params, uid, style)
     }
 
     #[inline]
-    pub fn vertical_scroll_bar(
-        &mut self,
-        value: &mut f32,
-        min: f32,
-        max: f32,
-        step: f32,
-        uid: Uid,
-        style: &Style,
-    ) {
-        self.scroll_bar(Axis::Y, value, min, max, step, uid, style);
+    pub fn vertical_scroll_bar(&mut self, params: ScrollBarParams, uid: Uid, style: &Style) -> f32 {
+        self.scroll_bar(Axis::Y, params, uid, style)
     }
 
     pub fn scroll_view<R>(
@@ -221,17 +222,19 @@ impl ByorGuiContext<'_> {
                 }
 
                 // scroll bar
-                let mut scroll_value = scroll.value();
-                gui.scroll_bar(
-                    axis,
-                    &mut scroll_value,
-                    0.0,
-                    max_scroll.value(),
-                    PIXELS_PER_SCROLL_LINE.value(),
-                    uid.concat(SCROLL_BAR_UID),
-                    &scroll_bar_style,
-                );
-                scroll = scroll_value.px();
+                scroll = gui
+                    .scroll_bar(
+                        axis,
+                        ScrollBarParams {
+                            value: scroll.value(),
+                            min: 0.0,
+                            max: max_scroll.value(),
+                            step: PIXELS_PER_SCROLL_LINE.value(),
+                        },
+                        uid.concat(SCROLL_BAR_UID),
+                        &scroll_bar_style,
+                    )
+                    .px();
             }
 
             gui.insert_persistent_state(uid, axis.persistent_state_scroll_key(), scroll);

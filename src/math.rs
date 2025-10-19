@@ -182,11 +182,6 @@ impl<U: Unit> PartialEq for Float<U> {
     fn eq(&self, other: &Self) -> bool {
         self.value.eq(&other.value)
     }
-
-    #[inline]
-    fn ne(&self, other: &Self) -> bool {
-        self.value.ne(&other.value)
-    }
 }
 
 impl<U: Unit> PartialOrd for Float<U> {
@@ -448,11 +443,6 @@ impl<U: Unit> PartialEq for Vec2<U> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.x.eq(&other.x) && self.y.eq(&other.y)
-    }
-
-    #[inline]
-    fn ne(&self, other: &Self) -> bool {
-        self.x.ne(&other.x) || self.y.ne(&other.y)
     }
 }
 

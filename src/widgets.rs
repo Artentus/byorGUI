@@ -74,10 +74,21 @@ impl ByorGuiContext<'_> {
             gui.insert_node(None, &leading_space_style);
 
             let response = gui.insert_node(Some(thumb_uid), &thumb_style);
-            if response.pressed(MouseButtons::PRIMARY) && !response.clicked(MouseButtons::PRIMARY) {
-                let scroll_bar_width = gui
+            if response.clicked(MouseButtons::PRIMARY) {
+                let thumb_x = gui
+                    .get_previous_state(thumb_uid)
+                    .map(|state| state.position.x)
+                    .unwrap_or_default();
+
+                gui.insert_persistent_state(
+                    uid,
+                    PersistentStateKey::ScrollBarThumbMouseOffset,
+                    gui.input_state().mouse_position().x - thumb_x,
+                );
+            } else if response.pressed(MouseButtons::PRIMARY) {
+                let (scroll_bar_x, scroll_bar_width) = gui
                     .get_previous_state(uid)
-                    .map(|state| state.size.x)
+                    .map(|state| (state.position.x, state.size.x))
                     .unwrap_or_default();
                 let left_button_width = gui
                     .get_previous_state(left_button_uid)
@@ -91,10 +102,14 @@ impl ByorGuiContext<'_> {
                     .get_previous_state(thumb_uid)
                     .map(|state| state.size.x)
                     .unwrap_or_default();
+                let thumb_mouse_offset: Float<Pixel> = gui
+                    .get_persistent_state(uid, PersistentStateKey::ScrollBarThumbMouseOffset)
+                    .copied()
+                    .unwrap_or(thumb_width / 2.0);
 
                 let parent_style = gui.computed_parent_style();
                 let padding = parent_style.padding();
-                let spacing = parent_style.child_spacing() * 4.0;
+                let spacing = parent_style.child_spacing();
 
                 let scroll_space = scroll_bar_width
                     - left_button_width
@@ -102,10 +117,16 @@ impl ByorGuiContext<'_> {
                     - thumb_width
                     - padding.left
                     - padding.right
-                    - spacing;
+                    - spacing * 4.0;
 
-                let drag_scroll_factor = gui.input_state().mouse_delta().x / scroll_space;
-                *value += drag_scroll_factor * (max - min);
+                let scroll_position = gui.input_state().mouse_position().x
+                    - scroll_bar_x
+                    - left_button_width
+                    - thumb_mouse_offset
+                    - padding.left
+                    - spacing * 2.0;
+
+                *value = (scroll_position / scroll_space) * (max - min);
             }
 
             gui.insert_node(None, &trailing_space_style);
@@ -179,10 +200,21 @@ impl ByorGuiContext<'_> {
             gui.insert_node(None, &leading_space_style);
 
             let response = gui.insert_node(Some(thumb_uid), &thumb_style);
-            if response.pressed(MouseButtons::PRIMARY) && !response.clicked(MouseButtons::PRIMARY) {
-                let scroll_bar_height = gui
+            if response.clicked(MouseButtons::PRIMARY) {
+                let thumb_y = gui
+                    .get_previous_state(thumb_uid)
+                    .map(|state| state.position.y)
+                    .unwrap_or_default();
+
+                gui.insert_persistent_state(
+                    uid,
+                    PersistentStateKey::ScrollBarThumbMouseOffset,
+                    gui.input_state().mouse_position().y - thumb_y,
+                );
+            } else if response.pressed(MouseButtons::PRIMARY) {
+                let (scroll_bar_y, scroll_bar_height) = gui
                     .get_previous_state(uid)
-                    .map(|state| state.size.y)
+                    .map(|state| (state.position.y, state.size.y))
                     .unwrap_or_default();
                 let up_button_height = gui
                     .get_previous_state(up_button_uid)
@@ -196,10 +228,14 @@ impl ByorGuiContext<'_> {
                     .get_previous_state(thumb_uid)
                     .map(|state| state.size.y)
                     .unwrap_or_default();
+                let thumb_mouse_offset: Float<Pixel> = gui
+                    .get_persistent_state(uid, PersistentStateKey::ScrollBarThumbMouseOffset)
+                    .copied()
+                    .unwrap_or(thumb_height / 2.0);
 
                 let parent_style = gui.computed_parent_style();
                 let padding = parent_style.padding();
-                let spacing = parent_style.child_spacing() * 4.0;
+                let spacing = parent_style.child_spacing();
 
                 let scroll_space = scroll_bar_height
                     - up_button_height
@@ -207,10 +243,16 @@ impl ByorGuiContext<'_> {
                     - thumb_height
                     - padding.top
                     - padding.bottom
-                    - spacing;
+                    - spacing * 4.0;
 
-                let drag_scroll_factor = gui.input_state().mouse_delta().y / scroll_space;
-                *value += drag_scroll_factor * (max - min);
+                let scroll_position = gui.input_state().mouse_position().y
+                    - scroll_bar_y
+                    - up_button_height
+                    - thumb_mouse_offset
+                    - padding.top
+                    - spacing * 2.0;
+
+                *value = (scroll_position / scroll_space) * (max - min);
             }
 
             gui.insert_node(None, &trailing_space_style);
@@ -255,8 +297,10 @@ impl ByorGuiContext<'_> {
         let scroll_bar_style = style! { width: Sizing::Grow };
 
         self.insert_container_node(None, &scroll_view_style, |mut gui| {
-            let persistent_state = gui.get_persistent_state(uid);
-            let mut scroll = persistent_state.horizontal_scroll.unwrap_or_default();
+            let mut scroll: Float<Pixel> = gui
+                .get_persistent_state(uid, PersistentStateKey::HorizontalScroll)
+                .copied()
+                .unwrap_or_default();
             let mut max_scroll = 0.px();
 
             // scroll container
@@ -294,8 +338,7 @@ impl ByorGuiContext<'_> {
                 scroll = scroll_value.px();
             }
 
-            let persistent_state = gui.get_persistent_state_mut(uid);
-            persistent_state.horizontal_scroll = Some(scroll);
+            gui.insert_persistent_state(uid, PersistentStateKey::HorizontalScroll, scroll);
 
             response.result
         })
@@ -331,8 +374,10 @@ impl ByorGuiContext<'_> {
         let scroll_bar_style = style! { height: Sizing::Grow };
 
         self.insert_container_node(None, &scroll_view_style, |mut gui| {
-            let persistent_state = gui.get_persistent_state(uid);
-            let mut scroll = persistent_state.vertical_scroll.unwrap_or_default();
+            let mut scroll: Float<Pixel> = gui
+                .get_persistent_state(uid, PersistentStateKey::VerticalScroll)
+                .copied()
+                .unwrap_or_default();
             let mut max_scroll = 0.px();
 
             // scroll container
@@ -370,8 +415,7 @@ impl ByorGuiContext<'_> {
                 scroll = scroll_value.px();
             }
 
-            let persistent_state = gui.get_persistent_state_mut(uid);
-            persistent_state.vertical_scroll = Some(scroll);
+            gui.insert_persistent_state(uid, PersistentStateKey::VerticalScroll, scroll);
 
             response.result
         })

@@ -49,7 +49,7 @@ impl ExampleApp {
             context: RenderContext::new(),
             window: None,
             state: None,
-            required_redraws: 0,
+            required_redraws: 2,
             gui,
             mouse_state: MouseState::default(),
             modifiers: Modifiers::default(),
@@ -89,7 +89,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 window,
                 window_size.width,
                 window_size.height,
-                PresentMode::Fifo,
+                PresentMode::AutoNoVsync, // UI feels significantly less responsive when using FiFo modes
             ))
             .expect("failed to create surface");
 
@@ -132,7 +132,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ScaleFactorChanged { .. } => {
-                self.required_redraws = 1;
+                self.required_redraws = self.required_redraws.max(1);
                 window.request_redraw();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -155,7 +155,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                     ElementState::Released => self.mouse_state.pressed_buttons &= !buttons,
                 }
 
-                self.required_redraws = 2;
+                self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -180,11 +180,11 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 };
                 self.mouse_state.scroll_delta += delta;
 
-                self.required_redraws = 2;
+                self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::CursorEntered { .. } | WindowEvent::CursorLeft { .. } => {
-                self.required_redraws = 2;
+                self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -193,7 +193,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                     y: position.y.px(),
                 };
 
-                self.required_redraws = 2;
+                self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::Resized(size) => {
@@ -203,7 +203,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                             .resize_surface(&mut state.surface, size.width, size.height);
                         state.surface_valid = true;
 
-                        self.required_redraws = 1;
+                        self.required_redraws = self.required_redraws.max(1);
                         window.request_redraw();
                     } else {
                         state.surface_valid = false;
@@ -226,7 +226,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                             x: surface.config.width.px(),
                             y: surface.config.height.px(),
                         },
-                        1.0,
+                        window.scale_factor() as f32,
                         self.mouse_state,
                         gui,
                     );
@@ -290,7 +290,6 @@ fn gui(mut gui: ByorGuiContext<'_>) {
         &style! {
             height: Sizing::Grow,
             max_height: 600.pt(),
-            flex_ratio: 2.0,
             padding: 5.pt(),
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,

@@ -10,9 +10,13 @@ use intmap::{IntKey, IntMap};
 pub use math::*;
 use parley::layout::Layout as TextLayout;
 use slotmap::{SecondaryMap, SlotMap};
+use smallbox::smallbox;
 use smallvec::SmallVec;
+use std::any::Any;
 use std::ops::Deref;
 use style::*;
+
+type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
 #[derive(Default)]
 struct ParleyGlobalData {
@@ -150,24 +154,16 @@ impl Node {
     }
 }
 
-pub struct PersistentState {
-    pub horizontal_scroll: Option<Float<Pixel>>,
-    pub vertical_scroll: Option<Float<Pixel>>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PersistentStateKey {
+    HorizontalScroll,
+    VerticalScroll,
+    ScrollBarThumbMouseOffset,
+
+    Custom(&'static str),
 }
 
-impl PersistentState {
-    pub const DEFAULT: Self = Self {
-        horizontal_scroll: None,
-        vertical_scroll: None,
-    };
-}
-
-impl Default for PersistentState {
-    #[inline]
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
+type PersistentState = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 1>>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HoverState {
@@ -188,6 +184,7 @@ pub struct PreviousState {
     pub hover_state: HoverState,
     pub size: Vec2<Pixel>,
     pub content_size: Vec2<Pixel>,
+    pub position: Vec2<Pixel>,
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -392,6 +389,7 @@ impl ByorGui {
                     y: total_content_size.y + total_spacing,
                 },
             };
+            state.position = node.position;
         }
 
         hovered_node
@@ -609,18 +607,40 @@ impl ByorGuiContext<'_> {
         &self.gui.input_state
     }
 
-    pub fn get_persistent_state(&self, uid: Uid) -> &PersistentState {
-        self.gui
-            .persistent_state
-            .get(uid)
-            .unwrap_or(&PersistentState::DEFAULT)
+    #[inline]
+    pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
+        let state = self.gui.persistent_state.get(uid)?;
+        let any = state.get(&key)?;
+        any.downcast_ref()
     }
 
-    pub fn get_persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
-        self.gui
-            .persistent_state
-            .entry(uid)
-            .or_insert(PersistentState::DEFAULT)
+    #[inline]
+    pub fn get_persistent_state_mut<T: Any>(
+        &mut self,
+        uid: Uid,
+        key: PersistentStateKey,
+    ) -> Option<&mut T> {
+        let state = self.gui.persistent_state.get_mut(uid)?;
+        let any = state.get_mut(&key)?;
+        any.downcast_mut()
+    }
+
+    #[inline]
+    pub fn get_or_insert_persistent_state<T: Any>(
+        &mut self,
+        uid: Uid,
+        key: PersistentStateKey,
+        default: impl FnOnce() -> T,
+    ) -> Option<&mut T> {
+        let state = self.gui.persistent_state.entry(uid).or_default();
+        let any = state.entry(key).or_insert_with(|| smallbox!(default()));
+        any.downcast_mut()
+    }
+
+    #[inline]
+    pub fn insert_persistent_state<T: Any>(&mut self, uid: Uid, key: PersistentStateKey, value: T) {
+        let state = self.gui.persistent_state.entry(uid).or_default();
+        state.insert(key, smallbox!(value));
     }
 
     #[inline]

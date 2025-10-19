@@ -74,14 +74,19 @@ impl ComputedStyle {
     }
 }
 
-impl PersistentState {
-    #[inline]
-    fn scroll_along_axis(&self, axis: Axis) -> Option<Float<Pixel>> {
-        match axis {
-            Axis::X => self.horizontal_scroll,
-            Axis::Y => self.vertical_scroll,
-        }
-    }
+fn scroll_along_axis(
+    persistent_state: Option<&PersistentState>,
+    axis: Axis,
+) -> Option<Float<Pixel>> {
+    let key = match axis {
+        Axis::X => PersistentStateKey::HorizontalScroll,
+        Axis::Y => PersistentStateKey::VerticalScroll,
+    };
+
+    persistent_state
+        .and_then(|persistent_state| persistent_state.get(&key))
+        .and_then(|scroll| scroll.downcast_ref::<Float<Pixel>>())
+        .copied()
 }
 
 fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
@@ -209,8 +214,8 @@ impl ByorGui {
             let node = &mut self.nodes[node_id];
             let scroll = node
                 .uid
-                .and_then(|uid| self.persistent_state.get(uid))
-                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis));
+                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis));
+
             *node.style.min_size.along_axis_mut(axis) = if scroll.is_some() {
                 min_size
             } else {
@@ -255,8 +260,7 @@ impl ByorGui {
                 // if the parent supports scrolling, do not shrink nodes
                 let parent_scroll = parent
                     .uid
-                    .and_then(|uid| self.persistent_state.get(uid))
-                    .and_then(|persistent_state| persistent_state.scroll_along_axis(axis));
+                    .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis));
                 if parent_scroll.is_some() && (available_space <= 0.px()) {
                     break 'grow_or_shrink;
                 }
@@ -363,8 +367,7 @@ impl ByorGui {
             let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
-                .and_then(|uid| self.persistent_state.get(uid))
-                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis))
+                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis))
                 .unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);
@@ -403,8 +406,7 @@ impl ByorGui {
             let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
-                .and_then(|uid| self.persistent_state.get(uid))
-                .and_then(|persistent_state| persistent_state.scroll_along_axis(axis))
+                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis))
                 .unwrap_or_default();
 
             let mut nodes = self.iter_children_mut(parent_id);

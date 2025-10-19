@@ -55,9 +55,9 @@ impl Measurement {
     #[inline]
     pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
         match self {
-            Measurement::Pixel(value) => value.to_pixel(pixel_per_point, pixel_per_em),
-            Measurement::Point(value) => value.to_pixel(pixel_per_point, pixel_per_em),
-            Measurement::EM(value) => value.to_pixel(pixel_per_point, pixel_per_em),
+            Measurement::Pixel(value) => value,
+            Measurement::Point(value) => value.to_pixel(pixel_per_point),
+            Measurement::EM(value) => value.to_pixel(pixel_per_em),
         }
     }
 }

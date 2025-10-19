@@ -9,33 +9,25 @@ mod private {
 
 pub trait Unit: private::SealedUnit {
     const SUFFIX: &'static str;
-
-    #[must_use]
-    fn to_pixel(value: f32, pixel_per_point: f32, pixel_per_em: f32) -> f32;
 }
 
 macro_rules! unit {
-    ($name:ident($suffix:literal, |$value:ident, $pixel_per_point:ident, $pixel_per_em:ident| $body:expr)) => {
+    ($name:ident($suffix:literal)) => {
         pub enum $name {}
 
         impl private::SealedUnit for $name {}
 
         impl Unit for $name {
             const SUFFIX: &'static str = $suffix;
-
-            #[inline]
-            fn to_pixel($value: f32, $pixel_per_point: f32, $pixel_per_em: f32) -> f32 {
-                $body
-            }
         }
     };
 }
 
-unit!(Pixel("px", |value, __, ___| value));
+unit!(Pixel("px"));
 
-unit!(Point("pt", |value, pixel_per_point, __| value * pixel_per_point));
+unit!(Point("pt"));
 
-unit!(EM("em", |value, __, pixel_per_em| value * pixel_per_em));
+unit!(EM("em"));
 
 #[repr(transparent)]
 pub struct Float<U: Unit> {
@@ -81,6 +73,12 @@ impl Float<Point> {
     pub const fn pt(value: f32) -> Self {
         Self::new(value)
     }
+
+    #[must_use]
+    #[inline]
+    pub fn to_pixel(self, pixel_per_point: f32) -> Float<Pixel> {
+        Float::px(self.value * pixel_per_point)
+    }
 }
 
 impl From<f32> for Float<Point> {
@@ -95,6 +93,12 @@ impl Float<EM> {
     #[inline]
     pub const fn em(value: f32) -> Self {
         Self::new(value)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn to_pixel(self, pixel_per_em: f32) -> Float<Pixel> {
+        Float::px(self.value * pixel_per_em)
     }
 }
 
@@ -149,14 +153,6 @@ impl_into_float!(i64);
 impl_into_float!(isize);
 impl_into_float!(f32);
 impl_into_float!(f64);
-
-impl<U: Unit> Float<U> {
-    #[must_use]
-    #[inline]
-    pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
-        Float::px(U::to_pixel(self.value, pixel_per_point, pixel_per_em))
-    }
-}
 
 impl<U: Unit> Default for Float<U> {
     #[inline]
@@ -375,13 +371,24 @@ pub struct Vec2<U: Unit> {
     pub y: Float<U>,
 }
 
-impl<U: Unit> Vec2<U> {
+impl Vec2<Point> {
     #[must_use]
     #[inline]
-    pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Vec2<Pixel> {
+    pub fn to_pixel(self, pixel_per_point: f32) -> Vec2<Pixel> {
         Vec2 {
-            x: self.x.to_pixel(pixel_per_point, pixel_per_em),
-            y: self.y.to_pixel(pixel_per_point, pixel_per_em),
+            x: self.x.to_pixel(pixel_per_point),
+            y: self.y.to_pixel(pixel_per_point),
+        }
+    }
+}
+
+impl Vec2<EM> {
+    #[must_use]
+    #[inline]
+    pub fn to_pixel(self, pixel_per_em: f32) -> Vec2<Pixel> {
+        Vec2 {
+            x: self.x.to_pixel(pixel_per_em),
+            y: self.y.to_pixel(pixel_per_em),
         }
     }
 }

@@ -162,7 +162,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 let delta = match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
                         let pixels_per_scroll_line =
-                            POINTS_PER_SCROLL_LINE.to_pixel(window.scale_factor() as f32, 1.0);
+                            POINTS_PER_SCROLL_LINE.to_pixel(window.scale_factor() as f32);
 
                         if self.modifiers.state().contains(ModifiersState::CONTROL) {
                             Vec2 {

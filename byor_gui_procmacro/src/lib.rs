@@ -27,6 +27,7 @@ fn expand_field(field: &Field) -> TokenStream2 {
         {
             return quote_spanned! {
                 field.span() =>
+                #[must_use]
                 #[inline]
                 pub fn #initial_function_name(self) -> Self {
                     Self {
@@ -35,6 +36,7 @@ fn expand_field(field: &Field) -> TokenStream2 {
                     }
                 }
 
+                #[must_use]
                 #[inline]
                 pub fn #inherit_function_name(self) -> Self {
                     Self {
@@ -43,6 +45,7 @@ fn expand_field(field: &Field) -> TokenStream2 {
                     }
                 }
 
+                #[must_use]
                 #[inline]
                 pub fn #with_function_name(self, #field_name: impl Into<#inner_type>) -> Self {
                     Self {

@@ -534,6 +534,12 @@ pub struct ByorGuiContext<'gui> {
 impl ByorGuiContext<'_> {
     #[must_use]
     #[inline(never)]
+    pub fn scale_factor(&self) -> f32 {
+        self.gui.scale_factor
+    }
+
+    #[must_use]
+    #[inline(never)]
     fn insert_leaf_node<'gui>(
         &'gui mut self,
         uid: Option<Uid>,
@@ -593,21 +599,25 @@ impl ByorGuiContext<'_> {
         self.gui.compute_node_response(uid)
     }
 
+    #[must_use]
     #[inline]
     pub fn parent_style(&self) -> &CascadedStyle {
         &self.parent_style
     }
 
+    #[must_use]
     #[inline]
     pub fn computed_parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
     }
 
+    #[must_use]
     #[inline]
     pub fn input_state(&self) -> &InputState {
         &self.gui.input_state
     }
 
+    #[must_use]
     #[inline]
     pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
         let state = self.gui.persistent_state.get(uid)?;
@@ -615,6 +625,7 @@ impl ByorGuiContext<'_> {
         any.downcast_ref()
     }
 
+    #[must_use]
     #[inline]
     pub fn get_persistent_state_mut<T: Any>(
         &mut self,
@@ -644,6 +655,7 @@ impl ByorGuiContext<'_> {
         state.insert(key, smallbox!(value));
     }
 
+    #[must_use]
     #[inline]
     pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
         self.gui.previous_state.get(uid)

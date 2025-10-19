@@ -51,6 +51,7 @@ macro_rules! impl_measurement_from_float {
 impl_measurement_from_float!(Pixel, Point, EM);
 
 impl Measurement {
+    #[must_use]
     #[inline]
     pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
         match self {
@@ -300,6 +301,7 @@ pub enum Property<T> {
 }
 
 impl<T> Property<T> {
+    #[must_use]
     #[inline]
     pub fn unwrap_or(self, default: T) -> T {
         match self {
@@ -308,6 +310,7 @@ impl<T> Property<T> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
         match self {
@@ -316,6 +319,7 @@ impl<T> Property<T> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn as_ref(&self) -> Property<&T> {
         match self {
@@ -325,6 +329,7 @@ impl<T> Property<T> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn as_mut(&mut self) -> Property<&mut T> {
         match self {
@@ -336,6 +341,7 @@ impl<T> Property<T> {
 }
 
 impl<T: Deref> Property<T> {
+    #[must_use]
     #[inline]
     pub fn as_deref(&self) -> Property<&<T as Deref>::Target> {
         match self {
@@ -347,6 +353,7 @@ impl<T: Deref> Property<T> {
 }
 
 impl<T: Clone> Property<&T> {
+    #[must_use]
     #[inline]
     pub fn cloned(self) -> Property<T> {
         match self {
@@ -358,6 +365,7 @@ impl<T: Clone> Property<&T> {
 }
 
 impl<T: Copy> Property<&T> {
+    #[must_use]
     #[inline]
     pub fn copied(self) -> Property<T> {
         match self {
@@ -401,6 +409,7 @@ macro_rules! define_style {
         }
 
         impl Style {
+            #[must_use]
             pub fn cascade_root(&self, screen_size: Vec2<Pixel>) -> CascadedStyle {
                 let mut style = CascadedStyle {
                     $(
@@ -421,6 +430,7 @@ macro_rules! define_style {
                 style
             }
 
+            #[must_use]
             pub fn cascade(&self, parent_style: &CascadedStyle) -> CascadedStyle {
                 CascadedStyle {
                     $(
@@ -435,6 +445,7 @@ macro_rules! define_style {
         }
 
         impl CascadedStyle {
+            #[must_use]
             pub fn as_style(&self) -> Style {
                 Style {
                     $(

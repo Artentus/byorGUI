@@ -43,31 +43,37 @@ impl InputState {
         self.scroll_delta = mouse_state.scroll_delta;
     }
 
+    #[must_use]
     #[inline]
     pub fn mouse_position(&self) -> Vec2<Pixel> {
         self.position
     }
 
+    #[must_use]
     #[inline]
     pub fn mouse_delta(&self) -> Vec2<Pixel> {
         self.position - self.prev_position
     }
 
+    #[must_use]
     #[inline]
     pub fn pressed_buttons(&self) -> MouseButtons {
         self.pressed_buttons
     }
 
+    #[must_use]
     #[inline]
     pub fn clicked_buttons(&self) -> MouseButtons {
         self.pressed_buttons & !self.prev_pressed_buttons
     }
 
+    #[must_use]
     #[inline]
     pub fn released_buttons(&self) -> MouseButtons {
         self.prev_pressed_buttons & !self.pressed_buttons
     }
 
+    #[must_use]
     #[inline]
     pub fn scroll_delta(&self) -> Vec2<Pixel> {
         self.scroll_delta

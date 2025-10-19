@@ -9,6 +9,7 @@ pub(crate) enum ComputedSizing {
 }
 
 impl Sizing {
+    #[must_use]
     #[inline]
     fn compute(self, pixel_per_point: f32, pixel_per_em: f32) -> (ComputedSizing, Float<Pixel>) {
         match self {
@@ -47,6 +48,7 @@ impl Default for ComputedPadding {
 }
 
 impl Padding {
+    #[must_use]
     #[inline]
     fn compute(&self, pixel_per_point: f32, pixel_per_em: f32) -> ComputedPadding {
         ComputedPadding {
@@ -119,26 +121,31 @@ impl ComputedStyle {
     // values that differ from the cascaded style
     // ------------------------------------------------------
 
+    #[must_use]
     #[inline]
     pub fn padding(&self) -> &ComputedPadding {
         &self.padding
     }
 
+    #[must_use]
     #[inline]
     pub fn child_spacing(&self) -> Float<Pixel> {
         self.child_spacing
     }
 
+    #[must_use]
     #[inline]
     pub fn corner_radius(&self) -> Float<Pixel> {
         self.corner_radius
     }
 
+    #[must_use]
     #[inline]
     pub fn border_width(&self) -> Float<Pixel> {
         self.border_width
     }
 
+    #[must_use]
     #[inline]
     pub fn font_size(&self) -> Float<Pixel> {
         self.font.size
@@ -147,91 +154,109 @@ impl ComputedStyle {
     // values that don't
     // ------------------------------------------------------
 
+    #[must_use]
     #[inline]
     pub(crate) fn width(&self) -> ComputedSizing {
         self.packed_fields.width()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn height(&self) -> ComputedSizing {
         self.packed_fields.height()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn layout_direction(&self) -> Direction {
         self.packed_fields.layout_direction()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn child_alignment(&self) -> Alignment {
         self.packed_fields.child_alignment()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn cross_axis_alignment(&self) -> Alignment {
         self.packed_fields.cross_axis_alignment()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn text_underline(&self) -> bool {
         self.packed_fields.text_underline()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn text_strikethrough(&self) -> bool {
         self.packed_fields.text_strikethrough()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn text_wrap(&self) -> bool {
         self.packed_fields.text_wrap()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn horizontal_text_alignment(&self) -> HorizontalTextAlignment {
         self.packed_fields.horizontal_text_alignment()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn vertical_text_alignment(&self) -> VerticalTextAlignment {
         self.packed_fields.vertical_text_alignment()
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn flex_ratio(&self) -> f32 {
         self.flex_ratio
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn background(&self) -> Color {
         self.background
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn border_color(&self) -> Color {
         self.border_color
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn font_family(&self) -> &FontStack<'static> {
         &self.font.family
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn font_style(&self) -> FontStyle {
         self.font.style
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn font_weight(&self) -> FontWeight {
         self.font.weight
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn font_width(&self) -> FontWidth {
         self.font.width
     }
 
+    #[must_use]
     #[inline]
     pub(crate) fn text_color(&self) -> Color {
         self.text_color
@@ -249,6 +274,7 @@ static INITIAL_COMPUTED_PADDING: LazyLock<Arc<ComputedPadding>> =
 static INITIAL_COMPUTED_FONT: LazyLock<Arc<ComputedFont>> =
     LazyLock::new(|| Arc::new(ComputedFont::default()));
 
+#[must_use]
 pub(crate) fn compute_style(
     style: &Style,
     cascaded_style: &CascadedStyle,

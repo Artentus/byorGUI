@@ -20,6 +20,7 @@ impl std::ops::Not for Axis {
 }
 
 impl Axis {
+    #[must_use]
     #[inline]
     pub fn primary_direction(self) -> Direction {
         match self {
@@ -28,6 +29,7 @@ impl Axis {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn cross_direction(self) -> Direction {
         match self {
@@ -36,11 +38,13 @@ impl Axis {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn is_primary(self, direction: Direction) -> bool {
         self.primary_direction() == direction
     }
 
+    #[must_use]
     #[inline]
     pub fn persistent_state_scroll_key(self) -> PersistentStateKey {
         match self {
@@ -51,6 +55,7 @@ impl Axis {
 }
 
 impl Direction {
+    #[must_use]
     #[inline]
     pub fn primary_axis(self) -> Axis {
         match self {
@@ -59,6 +64,7 @@ impl Direction {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn cross_axis(self) -> Axis {
         match self {
@@ -69,6 +75,7 @@ impl Direction {
 }
 
 impl<U: Unit> Vec2<U> {
+    #[must_use]
     #[inline]
     pub fn along_axis(self, axis: Axis) -> Float<U> {
         match axis {
@@ -77,6 +84,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn along_axis_mut(&mut self, axis: Axis) -> &mut Float<U> {
         match axis {
@@ -87,6 +95,7 @@ impl<U: Unit> Vec2<U> {
 }
 
 impl ComputedPadding {
+    #[must_use]
     #[inline]
     pub fn along_axis(&self, axis: Axis) -> [Float<Pixel>; 2] {
         match axis {
@@ -97,6 +106,7 @@ impl ComputedPadding {
 }
 
 impl Style {
+    #[must_use]
     #[inline]
     pub fn with_size_along_axis(self, axis: Axis, size: impl Into<Sizing>) -> Self {
         match axis {
@@ -105,6 +115,7 @@ impl Style {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn with_min_size_along_axis(self, axis: Axis, size: impl Into<Measurement>) -> Self {
         match axis {
@@ -113,6 +124,7 @@ impl Style {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn with_max_size_along_axis(self, axis: Axis, size: impl Into<Measurement>) -> Self {
         match axis {
@@ -123,6 +135,7 @@ impl Style {
 }
 
 impl ComputedStyle {
+    #[must_use]
     #[inline]
     pub(crate) fn size_along_axis(&self, axis: Axis) -> ComputedSizing {
         match axis {

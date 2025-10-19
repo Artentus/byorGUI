@@ -10,6 +10,7 @@ mod private {
 pub trait Unit: private::SealedUnit {
     const SUFFIX: &'static str;
 
+    #[must_use]
     fn to_pixel(value: f32, pixel_per_point: f32, pixel_per_em: f32) -> f32;
 }
 
@@ -43,6 +44,7 @@ pub struct Float<U: Unit> {
 }
 
 impl<U: Unit> Float<U> {
+    #[must_use]
     #[inline]
     pub const fn new(value: f32) -> Self {
         Self {
@@ -51,6 +53,7 @@ impl<U: Unit> Float<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn value(self) -> f32 {
         self.value
@@ -58,6 +61,7 @@ impl<U: Unit> Float<U> {
 }
 
 impl Float<Pixel> {
+    #[must_use]
     #[inline]
     pub const fn px(value: f32) -> Self {
         Self::new(value)
@@ -72,6 +76,7 @@ impl From<f32> for Float<Pixel> {
 }
 
 impl Float<Point> {
+    #[must_use]
     #[inline]
     pub const fn pt(value: f32) -> Self {
         Self::new(value)
@@ -86,6 +91,7 @@ impl From<f32> for Float<Point> {
 }
 
 impl Float<EM> {
+    #[must_use]
     #[inline]
     pub const fn em(value: f32) -> Self {
         Self::new(value)
@@ -100,8 +106,13 @@ impl From<f32> for Float<EM> {
 }
 
 pub trait IntoFloat {
+    #[must_use]
     fn px(self) -> Float<Pixel>;
+
+    #[must_use]
     fn pt(self) -> Float<Point>;
+
+    #[must_use]
     fn em(self) -> Float<EM>;
 }
 
@@ -140,6 +151,7 @@ impl_into_float!(f32);
 impl_into_float!(f64);
 
 impl<U: Unit> Float<U> {
+    #[must_use]
     #[inline]
     pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
         Float::px(U::to_pixel(self.value, pixel_per_point, pixel_per_em))
@@ -307,36 +319,43 @@ impl<U: Unit> Rem for Float<U> {
 }
 
 impl<U: Unit> Float<U> {
+    #[must_use]
     #[inline]
     pub const fn min(self, other: Self) -> Self {
         Self::new(self.value.min(other.value))
     }
 
+    #[must_use]
     #[inline]
     pub const fn max(self, other: Self) -> Self {
         Self::new(self.value.max(other.value))
     }
 
+    #[must_use]
     #[inline]
     pub const fn clamp(self, min: Self, max: Self) -> Self {
         Self::new(self.value.clamp(min.value, max.value))
     }
 
+    #[must_use]
     #[inline]
     pub const fn floor(self) -> Self {
         Self::new(self.value.floor())
     }
 
+    #[must_use]
     #[inline]
     pub const fn ceil(self) -> Self {
         Self::new(self.value.ceil())
     }
 
+    #[must_use]
     #[inline]
     pub const fn round(self) -> Self {
         Self::new(self.value.round())
     }
 
+    #[must_use]
     #[inline]
     pub const fn fract(self) -> Self {
         Self::new(self.value.fract())
@@ -357,6 +376,7 @@ pub struct Vec2<U: Unit> {
 }
 
 impl<U: Unit> Vec2<U> {
+    #[must_use]
     #[inline]
     pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Vec2<Pixel> {
         Vec2 {
@@ -754,6 +774,7 @@ impl<U: Unit> RemAssign<[f32; 2]> for Vec2<U> {
 }
 
 impl<U: Unit> Vec2<U> {
+    #[must_use]
     #[inline]
     pub const fn min(self, rhs: Self) -> Self {
         Self {
@@ -762,6 +783,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn max(self, rhs: Self) -> Self {
         Self {
@@ -770,6 +792,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn clamp(self, min: Self, max: Self) -> Self {
         Self {
@@ -778,6 +801,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn floor(self) -> Self {
         Self {
@@ -786,6 +810,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn ceil(self) -> Self {
         Self {
@@ -794,6 +819,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn round(self) -> Self {
         Self {
@@ -802,6 +828,7 @@ impl<U: Unit> Vec2<U> {
         }
     }
 
+    #[must_use]
     #[inline]
     pub const fn fract(self) -> Self {
         Self {

@@ -1,6 +1,7 @@
 use crate::style::axis::*;
 use crate::*;
 
+#[must_use]
 fn scroll_along_axis(
     persistent_state: Option<&PersistentState>,
     axis: Axis,

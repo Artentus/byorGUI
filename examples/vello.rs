@@ -40,8 +40,9 @@ impl ExampleApp {
     fn new() -> Self {
         let mut gui = ByorGui::default();
         *gui.root_style_mut() = style! {
-            padding: 5.0,
-            child_spacing: 5.0,
+            padding: 5.pt(),
+            child_spacing: 5.pt(),
+            font_size: 16.pt(),
         };
 
         Self {
@@ -161,14 +162,20 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 let delta = match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
                         if self.modifiers.state().contains(ModifiersState::CONTROL) {
-                            Vec2 { x: y, y: x } * PIXELS_PER_SCROLL_LINE
+                            Vec2 {
+                                x: y * PIXELS_PER_SCROLL_LINE,
+                                y: x * PIXELS_PER_SCROLL_LINE,
+                            }
                         } else {
-                            Vec2 { x, y } * PIXELS_PER_SCROLL_LINE
+                            Vec2 {
+                                x: x * PIXELS_PER_SCROLL_LINE,
+                                y: y * PIXELS_PER_SCROLL_LINE,
+                            }
                         }
                     }
                     MouseScrollDelta::PixelDelta(physical_position) => Vec2 {
-                        x: physical_position.x as Pixel,
-                        y: physical_position.y as Pixel,
+                        x: physical_position.x.px(),
+                        y: physical_position.y.px(),
                     },
                 };
                 self.mouse_state.scroll_delta += delta;
@@ -182,8 +189,8 @@ impl winit::application::ApplicationHandler for ExampleApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_state.position = Vec2 {
-                    x: position.x as Pixel,
-                    y: position.y as Pixel,
+                    x: position.x.px(),
+                    y: position.y.px(),
                 };
 
                 self.required_redraws = 2;
@@ -216,9 +223,10 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 {
                     self.gui.frame(
                         Vec2 {
-                            x: surface.config.width as Pixel,
-                            y: surface.config.height as Pixel,
+                            x: surface.config.width.px(),
+                            y: surface.config.height.px(),
                         },
+                        1.0,
                         self.mouse_state,
                         gui,
                     );
@@ -281,12 +289,12 @@ fn gui(mut gui: ByorGuiContext<'_>) {
         const { Uid::new(b"vertical_scroll_view") },
         &style! {
             height: Sizing::Grow,
-            max_height: 600.0,
+            max_height: 600.pt(),
             flex_ratio: 2.0,
-            padding: 5.0,
+            padding: 5.pt(),
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,
-            child_spacing: 5.0,
+            child_spacing: 5.pt(),
             layout_direction: Direction::TopToBottom,
         },
         |mut gui| {
@@ -294,8 +302,8 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                 gui.insert_node(
                     None,
                     &style! {
-                        width: 100.0,
-                        height: 100.0,
+                        width: 100.pt(),
+                        height: 100.pt(),
                     },
                 );
             }
@@ -306,12 +314,12 @@ fn gui(mut gui: ByorGuiContext<'_>) {
         const { Uid::new(b"horizontal_scroll_view") },
         &style! {
             width: Sizing::Grow,
-            max_width: 600.0,
+            max_width: 600.pt(),
             flex_ratio: 2.0,
-            padding: 5.0,
+            padding: 5.pt(),
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,
-            child_spacing: 5.0,
+            child_spacing: 5.pt(),
             layout_direction: Direction::LeftToRight,
         },
         |mut gui| {
@@ -319,8 +327,8 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                 gui.insert_node(
                     None,
                     &style! {
-                        width: 100.0,
-                        height: 100.0,
+                        width: 100.pt(),
+                        height: 100.pt(),
                     },
                 );
             }
@@ -333,15 +341,15 @@ fn gui(mut gui: ByorGuiContext<'_>) {
             width: Sizing::Grow,
             height: Sizing::Grow,
             layout_direction: Direction::TopToBottom,
-            padding: 5.0,
-            child_spacing: 5.0,
+            padding: 5.pt(),
+            child_spacing: 5.pt(),
         },
         |mut gui| {
             gui.insert_node(
                 None,
                 &style! {
                     width: Sizing::Grow,
-                    height: 100.0,
+                    height: 100.pt(),
                 },
             );
 
@@ -350,17 +358,17 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                 &style! {
                     width: Sizing::Grow,
                     height: Sizing::Grow,
-                    padding: 5.0,
+                    padding: 5.pt(),
                     layout_direction: Direction::TopToBottom,
                     child_alignment: Alignment::Center,
-                    child_spacing: 5.0,
+                    child_spacing: 5.pt(),
                 },
                 |mut gui| {
                     gui.insert_node(
                         None,
                         &style! {
-                            width: 100.0,
-                            height: 100.0,
+                            width: 100.pt(),
+                            height: 100.pt(),
                             cross_axis_alignment: Alignment::Center,
                         },
                     );
@@ -369,8 +377,8 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                         None,
                         &style! {
                             width: Sizing::Grow,
-                            height: 100.0,
-                            padding: 5.0,
+                            height: 100.pt(),
+                            padding: 5.pt(),
                             cross_axis_alignment: Alignment::Center,
                             horizontal_text_alignment: HorizontalTextAlignment::Center,
                             vertical_text_alignment: VerticalTextAlignment::Center,

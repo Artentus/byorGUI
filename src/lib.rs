@@ -56,7 +56,7 @@ mod global_cache {
     }
 }
 
-fn point_in_rect(point: Vec2, position: Vec2, size: Vec2) -> bool {
+fn point_in_rect<U: Unit>(point: Vec2<U>, position: Vec2<U>, size: Vec2<U>) -> bool {
     (point.x >= position.x)
         && (point.x <= position.x + size.x)
         && (point.y >= position.y)
@@ -120,49 +120,30 @@ struct Node {
     uid: Option<Uid>,
     style: ComputedStyle,
     text_layout: Option<TextLayoutId>,
-    min_size: Vec2,
-    max_size: Vec2,
-    size: Vec2,
-    position: Vec2,
-    vertical_text_offset: Pixel,
+    position: Vec2<Pixel>,
+    vertical_text_offset: Float<Pixel>,
 }
 
 impl Node {
-    fn new_root(style: &Style, screen_size: Vec2) -> Self {
-        Node {
-            uid: None,
-            style: style.compute_root(screen_size),
-            text_layout: None,
-            min_size: Vec2::default(),
-            max_size: Vec2::default(),
-            size: Vec2::default(),
-            position: Vec2::default(),
-            vertical_text_offset: 0.0,
-        }
-    }
-
     fn new(uid: Option<Uid>, style: ComputedStyle) -> Self {
         Self {
             uid,
             style,
             text_layout: None,
-            min_size: Vec2::default(),
-            max_size: Vec2::default(),
-            size: Vec2::default(),
             position: Vec2::default(),
-            vertical_text_offset: 0.0,
+            vertical_text_offset: 0.px(),
         }
     }
 
-    fn clip_bounds(&self) -> (Vec2, Vec2) {
+    fn clip_bounds(&self) -> (Vec2<Pixel>, Vec2<Pixel>) {
         let clip_position = Vec2 {
             x: self.position.x + self.style.padding().left,
             y: self.position.y + self.style.padding().top,
         };
 
         let clip_size = Vec2 {
-            x: self.size.x - self.style.padding().left - self.style.padding().right,
-            y: self.size.y - self.style.padding().top - self.style.padding().bottom,
+            x: self.style.fixed_size.x - self.style.padding().left - self.style.padding().right,
+            y: self.style.fixed_size.y - self.style.padding().top - self.style.padding().bottom,
         };
 
         (clip_position, clip_size)
@@ -170,8 +151,8 @@ impl Node {
 }
 
 pub struct PersistentState {
-    pub horizontal_scroll: Option<Pixel>,
-    pub vertical_scroll: Option<Pixel>,
+    pub horizontal_scroll: Option<Float<Pixel>>,
+    pub vertical_scroll: Option<Float<Pixel>>,
 }
 
 impl PersistentState {
@@ -205,8 +186,8 @@ pub struct PreviousState {
     referenced: bool,
 
     pub hover_state: HoverState,
-    pub inner_size: Vec2,
-    pub content_size: Vec2,
+    pub size: Vec2<Pixel>,
+    pub content_size: Vec2<Pixel>,
 }
 
 const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
@@ -222,21 +203,33 @@ pub struct ByorGui {
     previous_state: IntMap<Uid, PreviousState>,
 
     root_style: Style,
+    scale_factor: f32,
     input_state: InputState,
     root_id: Option<NodeId>,
     hovered_node_override: Option<Uid>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct NodeResponse<R> {
+pub struct NodeResponse<T> {
     pub hover_state: HoverState,
     pub pressed_buttons: MouseButtons,
     pub clicked_buttons: MouseButtons,
     pub released_buttons: MouseButtons,
-    pub result: R,
+    pub result: T,
 }
 
-impl<R> NodeResponse<R> {
+impl<T> NodeResponse<T> {
+    #[inline]
+    pub fn map_result<U>(self, f: impl FnOnce(T) -> U) -> NodeResponse<U> {
+        NodeResponse {
+            hover_state: self.hover_state,
+            pressed_buttons: self.pressed_buttons,
+            clicked_buttons: self.clicked_buttons,
+            released_buttons: self.released_buttons,
+            result: f(self.result),
+        }
+    }
+
     #[inline]
     pub fn is_hovered(&self) -> bool {
         matches!(
@@ -338,8 +331,8 @@ impl ByorGui {
 
         let node = &self.nodes[node_id];
         let mouse_position = self.input_state.mouse_position();
-        let mouse_in_bounds =
-            mouse_in_parent_clip_bounds && point_in_rect(mouse_position, node.position, node.size);
+        let mouse_in_bounds = mouse_in_parent_clip_bounds
+            && point_in_rect(mouse_position, node.position, node.style.fixed_size);
 
         let (clip_position, clip_size) = node.clip_bounds();
         let mouse_in_clip_bounds =
@@ -360,12 +353,12 @@ impl ByorGui {
             let mut total_content_size = Vec2::default();
             let mut max_content_size = Vec2::default();
             for (_, child) in self.iter_children(node_id) {
-                total_content_size += child.size;
-                max_content_size = max_content_size.max(child.size);
+                total_content_size += child.style.fixed_size;
+                max_content_size = max_content_size.max(child.style.fixed_size);
             }
 
             let total_spacing =
-                (self.child_count(node_id).saturating_sub(1) as Pixel) * node.style.child_spacing();
+                (self.child_count(node_id).saturating_sub(1) as f32) * node.style.child_spacing();
 
             let state = self.previous_state.entry(uid).or_default();
             state.referenced = true; // this state is indeed still referenced
@@ -388,11 +381,7 @@ impl ByorGui {
                 HoverState::NotHovered
             };
 
-            state.inner_size = Vec2 {
-                x: node.size.x - node.style.padding().left - node.style.padding().right,
-                y: node.size.y - node.style.padding().top - node.style.padding().bottom,
-            };
-
+            state.size = node.style.fixed_size;
             state.content_size = match node.style.layout_direction() {
                 Direction::LeftToRight => Vec2 {
                     x: total_content_size.x + total_spacing,
@@ -424,29 +413,51 @@ impl ByorGui {
         }
     }
 
-    pub fn frame<R>(
-        &mut self,
-        screen_size: Vec2,
+    #[must_use]
+    #[inline(never)]
+    fn begin_frame<'gui>(
+        &'gui mut self,
+        screen_size: Vec2<Pixel>,
+        scale_factor: f32,
         mouse_state: MouseState,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
+    ) -> ByorGuiContext<'gui> {
         self.nodes.clear();
         self.children.clear();
         self.text_layouts.clear();
 
+        self.scale_factor = scale_factor;
         self.input_state.update(mouse_state);
 
-        let root = Node::new_root(self.root_style(), screen_size);
-        let root_id = self.nodes.insert(root);
+        let cascaded_style = self.root_style().cascade_root(screen_size);
+        let computed_style = compute_style(self.root_style(), &cascaded_style, None, scale_factor);
+        let root_id = self.nodes.insert(Node::new(None, computed_style));
         self.root_id = Some(root_id);
 
-        let result = contents(ByorGuiContext {
+        ByorGuiContext {
             gui: self,
             parent_id: root_id,
-        });
+            parent_style: cascaded_style,
+        }
+    }
 
+    #[inline(never)]
+    fn end_frame(&mut self) {
+        let root_id = self.root_id.unwrap();
         self.layout(root_id);
         self.update_previous_states(root_id);
+    }
+
+    #[inline]
+    pub fn frame<R>(
+        &mut self,
+        screen_size: Vec2<Pixel>,
+        scale_factor: f32,
+        mouse_state: MouseState,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> R {
+        let context = self.begin_frame(screen_size, scale_factor, mouse_state);
+        let result = contents(context);
+        self.end_frame();
 
         result
     }
@@ -460,22 +471,8 @@ impl ByorGui {
     }
 
     #[must_use]
-    fn insert_leaf_node(&mut self, uid: Option<Uid>, style: &Style, parent_id: NodeId) -> NodeId {
-        let parent_style = &self.nodes[parent_id].style;
-        let style = style.compute(parent_style);
-        let node_id = self.nodes.insert(Node::new(uid, style));
-
-        self.children
-            .entry(parent_id)
-            .expect("invalid node ID in ancestor stack")
-            .or_default()
-            .push(node_id);
-
-        node_id
-    }
-
-    #[must_use]
-    fn compute_node_response<R>(&self, uid: Option<Uid>, result: R) -> NodeResponse<R> {
+    #[inline(never)]
+    fn compute_node_response(&self, uid: Option<Uid>) -> NodeResponse<()> {
         let hover_state = uid
             .and_then(|uid| self.previous_state.get(uid))
             .map(|previous_state| previous_state.hover_state)
@@ -501,7 +498,7 @@ impl ByorGui {
             pressed_buttons,
             clicked_buttons,
             released_buttons,
-            result,
+            result: (),
         }
     }
 
@@ -514,7 +511,8 @@ impl ByorGui {
             let style = &self.nodes[node_id].style;
             builder.push_default(StyleProperty::Brush(style.text_color()));
             builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
-            builder.push_default(StyleProperty::FontSize(style.font_size()));
+            builder.push_default(StyleProperty::FontSize(style.font_size().value()));
+            builder.push_default(StyleProperty::FontStyle(style.font_style()));
             builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
             builder.push_default(StyleProperty::FontWeight(style.font_weight()));
             builder.push_default(StyleProperty::FontWidth(style.font_width()));
@@ -531,43 +529,78 @@ impl ByorGui {
 pub struct ByorGuiContext<'gui> {
     gui: &'gui mut ByorGui,
     parent_id: NodeId,
+    parent_style: CascadedStyle,
 }
 
 impl ByorGuiContext<'_> {
-    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let _ = self.gui.insert_leaf_node(uid, style, self.parent_id);
-        self.gui.compute_node_response(uid, ())
+    #[must_use]
+    #[inline(never)]
+    fn insert_leaf_node<'gui>(
+        &'gui mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        parent_id: NodeId,
+    ) -> ByorGuiContext<'gui> {
+        let cascaded_style = style.cascade(&self.parent_style);
+        let computed_style = compute_style(
+            style,
+            &cascaded_style,
+            Some(&self.gui.nodes[self.parent_id].style),
+            self.gui.scale_factor,
+        );
+        let node_id = self.gui.nodes.insert(Node::new(uid, computed_style));
+
+        self.gui
+            .children
+            .entry(parent_id)
+            .expect("invalid node ID in ancestor stack")
+            .or_default()
+            .push(node_id);
+
+        ByorGuiContext {
+            gui: self.gui,
+            parent_id: node_id,
+            parent_style: cascaded_style,
+        }
     }
 
+    #[inline]
+    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+        let _ = self.insert_leaf_node(uid, style, self.parent_id);
+        self.gui.compute_node_response(uid)
+    }
+
+    #[inline]
     pub fn insert_container_node<R>(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
-        let node_id = self.gui.insert_leaf_node(uid, style, self.parent_id);
-
-        let result = contents(ByorGuiContext {
-            gui: self.gui,
-            parent_id: node_id,
-        });
-
-        self.gui.compute_node_response(uid, result)
+        let context = self.insert_leaf_node(uid, style, self.parent_id);
+        let result = contents(context);
+        self.gui.compute_node_response(uid).map_result(|_| result)
     }
 
+    #[inline]
     pub fn insert_text_node(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         text: &str,
     ) -> NodeResponse<()> {
-        let node_id = self.gui.insert_leaf_node(uid, style, self.parent_id);
+        let node_id = self.insert_leaf_node(uid, style, self.parent_id).parent_id;
         self.gui.layout_text(text, node_id);
-
-        self.gui.compute_node_response(uid, ())
+        self.gui.compute_node_response(uid)
     }
 
-    pub fn parent_style(&self) -> &ComputedStyle {
+    #[inline]
+    pub fn parent_style(&self) -> &CascadedStyle {
+        &self.parent_style
+    }
+
+    #[inline]
+    pub fn computed_parent_style(&self) -> &ComputedStyle {
         &self.gui.nodes[self.parent_id].style
     }
 

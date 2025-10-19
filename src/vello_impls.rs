@@ -4,32 +4,32 @@ use vello::kurbo::{self, Affine, Line, Rect, Stroke};
 use vello::peniko::color::{AlphaColor, Srgb};
 use vello::peniko::{self, Fill};
 
-impl From<Vec2> for kurbo::Point {
+impl From<Vec2<Pixel>> for kurbo::Point {
     #[inline]
-    fn from(value: Vec2) -> Self {
+    fn from(value: Vec2<Pixel>) -> Self {
         Self {
-            x: value.x.into(),
-            y: value.y.into(),
+            x: value.x.value().into(),
+            y: value.y.value().into(),
         }
     }
 }
 
-impl From<Vec2> for kurbo::Vec2 {
+impl From<Vec2<Pixel>> for kurbo::Vec2 {
     #[inline]
-    fn from(value: Vec2) -> Self {
+    fn from(value: Vec2<Pixel>) -> Self {
         Self {
-            x: value.x.into(),
-            y: value.y.into(),
+            x: value.x.value().into(),
+            y: value.y.value().into(),
         }
     }
 }
 
-impl From<Vec2> for kurbo::Size {
+impl From<Vec2<Pixel>> for kurbo::Size {
     #[inline]
-    fn from(value: Vec2) -> Self {
+    fn from(value: Vec2<Pixel>) -> Self {
         Self {
-            width: value.x.into(),
-            height: value.y.into(),
+            width: value.x.value().into(),
+            height: value.y.value().into(),
         }
     }
 }
@@ -44,7 +44,11 @@ impl From<Color> for AlphaColor<Srgb> {
 impl Renderer for vello::Scene {
     type Error = std::convert::Infallible;
 
-    fn push_clip_rect(&mut self, position: Vec2, size: Vec2) -> Result<(), Self::Error> {
+    fn push_clip_rect(
+        &mut self,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+    ) -> Result<(), Self::Error> {
         let rect = Rect::from_origin_size(position, size);
         self.push_clip_layer(Affine::IDENTITY, &rect);
 
@@ -59,31 +63,33 @@ impl Renderer for vello::Scene {
 
     fn draw_rect(
         &mut self,
-        position: Vec2,
-        size: Vec2,
-        corner_radius: f32,
-        stroke_width: f32,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+        corner_radius: Float<Pixel>,
+        stroke_width: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error> {
-        let rect = Rect::from_origin_size(position, size);
-        let brush = peniko::Brush::Solid(color.into());
+        if color.a > 0 {
+            let rect = Rect::from_origin_size(position, size);
+            let brush = peniko::Brush::Solid(color.into());
 
-        if corner_radius == 0.0 {
-            self.stroke(
-                &Stroke::new(stroke_width as f64),
-                Affine::IDENTITY,
-                &brush,
-                None,
-                &rect,
-            );
-        } else {
-            self.stroke(
-                &Stroke::new(stroke_width as f64),
-                Affine::IDENTITY,
-                &brush,
-                None,
-                &rect.to_rounded_rect(corner_radius as f64),
-            );
+            if corner_radius == 0.px() {
+                self.stroke(
+                    &Stroke::new(stroke_width.value() as f64),
+                    Affine::IDENTITY,
+                    &brush,
+                    None,
+                    &rect,
+                );
+            } else {
+                self.stroke(
+                    &Stroke::new(stroke_width.value() as f64),
+                    Affine::IDENTITY,
+                    &brush,
+                    None,
+                    &rect.to_rounded_rect(corner_radius.value() as f64),
+                );
+            }
         }
 
         Ok(())
@@ -91,30 +97,36 @@ impl Renderer for vello::Scene {
 
     fn fill_rect(
         &mut self,
-        position: Vec2,
-        size: Vec2,
-        corner_radius: f32,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+        corner_radius: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error> {
-        let rect = Rect::from_origin_size(position, size);
-        let brush = peniko::Brush::Solid(color.into());
+        if color.a > 0 {
+            let rect = Rect::from_origin_size(position, size);
+            let brush = peniko::Brush::Solid(color.into());
 
-        if corner_radius == 0.0 {
-            self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &rect);
-        } else {
-            self.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                &brush,
-                None,
-                &rect.to_rounded_rect(corner_radius as f64),
-            );
+            if corner_radius == 0.px() {
+                self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &rect);
+            } else {
+                self.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    &brush,
+                    None,
+                    &rect.to_rounded_rect(corner_radius.value() as f64),
+                );
+            }
         }
 
         Ok(())
     }
 
-    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2) -> Result<(), Self::Error> {
+    fn draw_text(
+        &mut self,
+        text: GlyphRun<'_, Color>,
+        position: Vec2<Pixel>,
+    ) -> Result<(), Self::Error> {
         let style = text.style();
         let transform = Affine::translate(position);
 

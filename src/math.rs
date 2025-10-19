@@ -1,37 +1,438 @@
 use std::fmt;
+use std::iter::Sum;
+use std::marker::PhantomData;
 use std::ops::*;
 
-pub type Pixel = f32;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-#[repr(C)]
-pub struct Vec2 {
-    pub x: Pixel,
-    pub y: Pixel,
+mod private {
+    pub trait SealedUnit {}
 }
 
-impl fmt::Display for Vec2 {
+pub trait Unit: private::SealedUnit {
+    const SUFFIX: &'static str;
+
+    fn to_pixel(value: f32, pixel_per_point: f32, pixel_per_em: f32) -> f32;
+}
+
+macro_rules! unit {
+    ($name:ident($suffix:literal, |$value:ident, $pixel_per_point:ident, $pixel_per_em:ident| $body:expr)) => {
+        pub enum $name {}
+
+        impl private::SealedUnit for $name {}
+
+        impl Unit for $name {
+            const SUFFIX: &'static str = $suffix;
+
+            #[inline]
+            fn to_pixel($value: f32, $pixel_per_point: f32, $pixel_per_em: f32) -> f32 {
+                $body
+            }
+        }
+    };
+}
+
+unit!(Pixel("px", |value, __, ___| value));
+
+unit!(Point("pt", |value, pixel_per_point, __| value * pixel_per_point));
+
+unit!(EM("em", |value, __, pixel_per_em| value * pixel_per_em));
+
+#[repr(transparent)]
+pub struct Float<U: Unit> {
+    value: f32,
+    _unit: PhantomData<fn() -> U>,
+}
+
+impl<U: Unit> Float<U> {
+    #[inline]
+    pub const fn new(value: f32) -> Self {
+        Self {
+            value,
+            _unit: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub const fn value(self) -> f32 {
+        self.value
+    }
+}
+
+impl Float<Pixel> {
+    #[inline]
+    pub const fn px(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<f32> for Float<Pixel> {
+    #[inline]
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl Float<Point> {
+    #[inline]
+    pub const fn pt(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<f32> for Float<Point> {
+    #[inline]
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl Float<EM> {
+    #[inline]
+    pub const fn em(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<f32> for Float<EM> {
+    #[inline]
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+pub trait IntoFloat {
+    fn px(self) -> Float<Pixel>;
+    fn pt(self) -> Float<Point>;
+    fn em(self) -> Float<EM>;
+}
+
+macro_rules! impl_into_float {
+    ($t:ty) => {
+        impl IntoFloat for $t {
+            #[inline]
+            fn px(self) -> Float<Pixel> {
+                Float::px(self as f32)
+            }
+
+            #[inline]
+            fn pt(self) -> Float<Point> {
+                Float::pt(self as f32)
+            }
+
+            #[inline]
+            fn em(self) -> Float<EM> {
+                Float::em(self as f32)
+            }
+        }
+    };
+}
+
+impl_into_float!(u8);
+impl_into_float!(u16);
+impl_into_float!(u32);
+impl_into_float!(u64);
+impl_into_float!(usize);
+impl_into_float!(i8);
+impl_into_float!(i16);
+impl_into_float!(i32);
+impl_into_float!(i64);
+impl_into_float!(isize);
+impl_into_float!(f32);
+impl_into_float!(f64);
+
+impl<U: Unit> Float<U> {
+    #[inline]
+    pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
+        Float::px(U::to_pixel(self.value, pixel_per_point, pixel_per_em))
+    }
+}
+
+impl<U: Unit> Default for Float<U> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            value: f32::default(),
+            _unit: PhantomData,
+        }
+    }
+}
+
+impl<U: Unit> Clone for Float<U> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value,
+            _unit: PhantomData,
+        }
+    }
+}
+
+impl<U: Unit> Copy for Float<U> {}
+
+impl<U: Unit> fmt::Debug for Float<U> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.value, U::SUFFIX)
+    }
+}
+
+impl<U: Unit> fmt::Display for Float<U> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.value, U::SUFFIX)
+    }
+}
+
+impl<U: Unit> PartialEq for Float<U> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.value.eq(&other.value)
+    }
+
+    #[inline]
+    fn ne(&self, other: &Self) -> bool {
+        self.value.ne(&other.value)
+    }
+}
+
+impl<U: Unit> PartialOrd for Float<U> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.value.partial_cmp(&other.value)
+    }
+}
+
+impl<U: Unit> Neg for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn neg(self) -> Self::Output {
+        Self::new(-self.value)
+    }
+}
+
+impl<U: Unit> Add for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.value + rhs.value)
+    }
+}
+
+impl<U: Unit> AddAssign for Float<U> {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl<U: Unit> Sub for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.value - rhs.value)
+    }
+}
+
+impl<U: Unit> SubAssign for Float<U> {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}
+
+impl<U: Unit> Mul<f32> for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self::new(self.value * rhs)
+    }
+}
+
+impl<U: Unit> MulAssign<f32> for Float<U> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = *self * rhs;
+    }
+}
+
+impl<U: Unit> Mul<Float<U>> for f32 {
+    type Output = Float<U>;
+
+    fn mul(self, rhs: Float<U>) -> Self::Output {
+        Float::new(self * rhs.value)
+    }
+}
+
+impl<U: Unit> Div<f32> for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn div(self, rhs: f32) -> Self::Output {
+        Self::new(self.value / rhs)
+    }
+}
+
+impl<U: Unit> DivAssign<f32> for Float<U> {
+    #[inline]
+    fn div_assign(&mut self, rhs: f32) {
+        *self = *self / rhs;
+    }
+}
+
+impl<U: Unit> Div for Float<U> {
+    type Output = f32;
+
+    #[inline]
+    fn div(self, rhs: Float<U>) -> Self::Output {
+        self.value / rhs.value
+    }
+}
+
+impl<U: Unit> Rem<f32> for Float<U> {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: f32) -> Self::Output {
+        Self::new(self.value % rhs)
+    }
+}
+
+impl<U: Unit> RemAssign<f32> for Float<U> {
+    #[inline]
+    fn rem_assign(&mut self, rhs: f32) {
+        *self = *self % rhs;
+    }
+}
+
+impl<U: Unit> Rem for Float<U> {
+    type Output = Float<U>;
+
+    #[inline]
+    fn rem(self, rhs: Float<U>) -> Self::Output {
+        Float::new(self.value % rhs.value)
+    }
+}
+
+impl<U: Unit> Float<U> {
+    #[inline]
+    pub const fn min(self, other: Self) -> Self {
+        Self::new(self.value.min(other.value))
+    }
+
+    #[inline]
+    pub const fn max(self, other: Self) -> Self {
+        Self::new(self.value.max(other.value))
+    }
+
+    #[inline]
+    pub const fn clamp(self, min: Self, max: Self) -> Self {
+        Self::new(self.value.clamp(min.value, max.value))
+    }
+
+    #[inline]
+    pub const fn floor(self) -> Self {
+        Self::new(self.value.floor())
+    }
+
+    #[inline]
+    pub const fn ceil(self) -> Self {
+        Self::new(self.value.ceil())
+    }
+
+    #[inline]
+    pub const fn round(self) -> Self {
+        Self::new(self.value.round())
+    }
+
+    #[inline]
+    pub const fn fract(self) -> Self {
+        Self::new(self.value.fract())
+    }
+}
+
+impl<U: Unit> Sum for Float<U> {
+    #[inline]
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        Self::new(iter.map(Self::value).sum())
+    }
+}
+
+#[repr(C)]
+pub struct Vec2<U: Unit> {
+    pub x: Float<U>,
+    pub y: Float<U>,
+}
+
+impl<U: Unit> Vec2<U> {
+    #[inline]
+    pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Vec2<Pixel> {
+        Vec2 {
+            x: self.x.to_pixel(pixel_per_point, pixel_per_em),
+            y: self.y.to_pixel(pixel_per_point, pixel_per_em),
+        }
+    }
+}
+
+impl<U: Unit> Default for Vec2<U> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            x: Float::default(),
+            y: Float::default(),
+        }
+    }
+}
+
+impl<U: Unit> Clone for Vec2<U> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            x: self.x,
+            y: self.y,
+        }
+    }
+}
+
+impl<U: Unit> Copy for Vec2<U> {}
+
+impl<U: Unit> fmt::Debug for Vec2<U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
 
-impl Vec2 {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
-    pub const UNIT_X: Self = Self { x: 1.0, y: 0.0 };
-    pub const UNIT_Y: Self = Self { x: 0.0, y: 1.0 };
+impl<U: Unit> fmt::Display for Vec2<U> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
 }
 
-impl From<Pixel> for Vec2 {
+impl<U: Unit> Vec2<U> {
+    pub const ZERO: Self = Self {
+        x: Float::new(0.0),
+        y: Float::new(0.0),
+    };
+    pub const UNIT_X: Self = Self {
+        x: Float::new(1.0),
+        y: Float::new(0.0),
+    };
+    pub const UNIT_Y: Self = Self {
+        x: Float::new(0.0),
+        y: Float::new(1.0),
+    };
+}
+
+impl<U: Unit> From<Float<U>> for Vec2<U> {
     #[inline]
-    fn from(value: Pixel) -> Self {
+    fn from(value: Float<U>) -> Self {
         Self { x: value, y: value }
     }
 }
 
-impl From<(Pixel, Pixel)> for Vec2 {
+impl<U: Unit> From<(Float<U>, Float<U>)> for Vec2<U> {
     #[inline]
-    fn from(value: (Pixel, Pixel)) -> Self {
+    fn from(value: (Float<U>, Float<U>)) -> Self {
         Self {
             x: value.0,
             y: value.1,
@@ -39,9 +440,9 @@ impl From<(Pixel, Pixel)> for Vec2 {
     }
 }
 
-impl From<[Pixel; 2]> for Vec2 {
+impl<U: Unit> From<[Float<U>; 2]> for Vec2<U> {
     #[inline]
-    fn from(value: [Pixel; 2]) -> Self {
+    fn from(value: [Float<U>; 2]) -> Self {
         Self {
             x: value[0],
             y: value[1],
@@ -49,7 +450,19 @@ impl From<[Pixel; 2]> for Vec2 {
     }
 }
 
-impl Neg for Vec2 {
+impl<U: Unit> PartialEq for Vec2<U> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.x.eq(&other.x) && self.y.eq(&other.y)
+    }
+
+    #[inline]
+    fn ne(&self, other: &Self) -> bool {
+        self.x.ne(&other.x) || self.y.ne(&other.y)
+    }
+}
+
+impl<U: Unit> Neg for Vec2<U> {
     type Output = Self;
 
     #[inline]
@@ -61,7 +474,7 @@ impl Neg for Vec2 {
     }
 }
 
-impl Add for Vec2 {
+impl<U: Unit> Add for Vec2<U> {
     type Output = Self;
 
     #[inline]
@@ -73,18 +486,18 @@ impl Add for Vec2 {
     }
 }
 
-impl AddAssign for Vec2 {
+impl<U: Unit> AddAssign for Vec2<U> {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = *self + rhs;
     }
 }
 
-impl Add<Pixel> for Vec2 {
+impl<U: Unit> Add<Float<U>> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: Pixel) -> Self::Output {
+    fn add(self, rhs: Float<U>) -> Self::Output {
         Self {
             x: self.x + rhs,
             y: self.y + rhs,
@@ -92,18 +505,18 @@ impl Add<Pixel> for Vec2 {
     }
 }
 
-impl AddAssign<Pixel> for Vec2 {
+impl<U: Unit> AddAssign<Float<U>> for Vec2<U> {
     #[inline]
-    fn add_assign(&mut self, rhs: Pixel) {
+    fn add_assign(&mut self, rhs: Float<U>) {
         *self = *self + rhs;
     }
 }
 
-impl Add<Vec2> for Pixel {
-    type Output = Vec2;
+impl<U: Unit> Add<Vec2<U>> for Float<U> {
+    type Output = Vec2<U>;
 
     #[inline]
-    fn add(self, rhs: Vec2) -> Self::Output {
+    fn add(self, rhs: Vec2<U>) -> Self::Output {
         Vec2 {
             x: self + rhs.x,
             y: self + rhs.y,
@@ -111,7 +524,7 @@ impl Add<Vec2> for Pixel {
     }
 }
 
-impl Sub for Vec2 {
+impl<U: Unit> Sub for Vec2<U> {
     type Output = Self;
 
     #[inline]
@@ -123,18 +536,18 @@ impl Sub for Vec2 {
     }
 }
 
-impl SubAssign for Vec2 {
+impl<U: Unit> SubAssign for Vec2<U> {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = *self - rhs;
     }
 }
 
-impl Sub<Pixel> for Vec2 {
+impl<U: Unit> Sub<Float<U>> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn sub(self, rhs: Pixel) -> Self::Output {
+    fn sub(self, rhs: Float<U>) -> Self::Output {
         Self {
             x: self.x - rhs,
             y: self.y - rhs,
@@ -142,37 +555,18 @@ impl Sub<Pixel> for Vec2 {
     }
 }
 
-impl SubAssign<Pixel> for Vec2 {
+impl<U: Unit> SubAssign<Float<U>> for Vec2<U> {
     #[inline]
-    fn sub_assign(&mut self, rhs: Pixel) {
+    fn sub_assign(&mut self, rhs: Float<U>) {
         *self = *self - rhs;
     }
 }
 
-impl Mul for Vec2 {
+impl<U: Unit> Mul<f32> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x * rhs.x,
-            y: self.y * rhs.y,
-        }
-    }
-}
-
-impl MulAssign for Vec2 {
-    #[inline]
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
-}
-
-impl Mul<Pixel> for Vec2 {
-    type Output = Self;
-
-    #[inline]
-    fn mul(self, rhs: Pixel) -> Self::Output {
+    fn mul(self, rhs: f32) -> Self::Output {
         Self {
             x: self.x * rhs,
             y: self.y * rhs,
@@ -180,18 +574,18 @@ impl Mul<Pixel> for Vec2 {
     }
 }
 
-impl MulAssign<Pixel> for Vec2 {
+impl<U: Unit> MulAssign<f32> for Vec2<U> {
     #[inline]
-    fn mul_assign(&mut self, rhs: Pixel) {
+    fn mul_assign(&mut self, rhs: f32) {
         *self = *self * rhs;
     }
 }
 
-impl Mul<Vec2> for Pixel {
-    type Output = Vec2;
+impl<U: Unit> Mul<Vec2<U>> for f32 {
+    type Output = Vec2<U>;
 
     #[inline]
-    fn mul(self, rhs: Vec2) -> Self::Output {
+    fn mul(self, rhs: Vec2<U>) -> Self::Output {
         Vec2 {
             x: self * rhs.x,
             y: self * rhs.y,
@@ -199,30 +593,73 @@ impl Mul<Vec2> for Pixel {
     }
 }
 
-impl Div for Vec2 {
+impl<U: Unit> Mul<(f32, f32)> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn div(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: (f32, f32)) -> Self::Output {
         Self {
-            x: self.x / rhs.x,
-            y: self.y / rhs.y,
+            x: self.x * rhs.0,
+            y: self.y * rhs.1,
         }
     }
 }
 
-impl DivAssign for Vec2 {
+impl<U: Unit> MulAssign<(f32, f32)> for Vec2<U> {
     #[inline]
-    fn div_assign(&mut self, rhs: Self) {
-        *self = *self / rhs;
+    fn mul_assign(&mut self, rhs: (f32, f32)) {
+        *self = *self * rhs;
     }
 }
 
-impl Div<Pixel> for Vec2 {
+impl<U: Unit> Mul<Vec2<U>> for (f32, f32) {
+    type Output = Vec2<U>;
+
+    #[inline]
+    fn mul(self, rhs: Vec2<U>) -> Self::Output {
+        Vec2 {
+            x: self.0 * rhs.x,
+            y: self.1 * rhs.y,
+        }
+    }
+}
+
+impl<U: Unit> Mul<[f32; 2]> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn div(self, rhs: Pixel) -> Self::Output {
+    fn mul(self, rhs: [f32; 2]) -> Self::Output {
+        Self {
+            x: self.x * rhs[0],
+            y: self.y * rhs[1],
+        }
+    }
+}
+
+impl<U: Unit> MulAssign<[f32; 2]> for Vec2<U> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: [f32; 2]) {
+        *self = *self * rhs;
+    }
+}
+
+impl<U: Unit> Mul<Vec2<U>> for [f32; 2] {
+    type Output = Vec2<U>;
+
+    #[inline]
+    fn mul(self, rhs: Vec2<U>) -> Self::Output {
+        Vec2 {
+            x: self[0] * rhs.x,
+            y: self[1] * rhs.y,
+        }
+    }
+}
+
+impl<U: Unit> Div<f32> for Vec2<U> {
+    type Output = Self;
+
+    #[inline]
+    fn div(self, rhs: f32) -> Self::Output {
         Self {
             x: self.x / rhs,
             y: self.y / rhs,
@@ -230,37 +667,56 @@ impl Div<Pixel> for Vec2 {
     }
 }
 
-impl DivAssign<Pixel> for Vec2 {
+impl<U: Unit> DivAssign<f32> for Vec2<U> {
     #[inline]
-    fn div_assign(&mut self, rhs: Pixel) {
+    fn div_assign(&mut self, rhs: f32) {
         *self = *self / rhs;
     }
 }
 
-impl Rem for Vec2 {
+impl<U: Unit> Div<(f32, f32)> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn rem(self, rhs: Self) -> Self::Output {
+    fn div(self, rhs: (f32, f32)) -> Self::Output {
         Self {
-            x: self.x % rhs.x,
-            y: self.y % rhs.y,
+            x: self.x / rhs.0,
+            y: self.y / rhs.1,
         }
     }
 }
 
-impl RemAssign for Vec2 {
+impl<U: Unit> DivAssign<(f32, f32)> for Vec2<U> {
     #[inline]
-    fn rem_assign(&mut self, rhs: Self) {
-        *self = *self % rhs;
+    fn div_assign(&mut self, rhs: (f32, f32)) {
+        *self = *self / rhs;
     }
 }
 
-impl Rem<Pixel> for Vec2 {
+impl<U: Unit> Div<[f32; 2]> for Vec2<U> {
     type Output = Self;
 
     #[inline]
-    fn rem(self, rhs: Pixel) -> Self::Output {
+    fn div(self, rhs: [f32; 2]) -> Self::Output {
+        Self {
+            x: self.x / rhs[0],
+            y: self.y / rhs[1],
+        }
+    }
+}
+
+impl<U: Unit> DivAssign<[f32; 2]> for Vec2<U> {
+    #[inline]
+    fn div_assign(&mut self, rhs: [f32; 2]) {
+        *self = *self / rhs;
+    }
+}
+
+impl<U: Unit> Rem<f32> for Vec2<U> {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: f32) -> Self::Output {
         Self {
             x: self.x % rhs,
             y: self.y % rhs,
@@ -268,14 +724,52 @@ impl Rem<Pixel> for Vec2 {
     }
 }
 
-impl RemAssign<Pixel> for Vec2 {
+impl<U: Unit> RemAssign<f32> for Vec2<U> {
     #[inline]
-    fn rem_assign(&mut self, rhs: Pixel) {
+    fn rem_assign(&mut self, rhs: f32) {
         *self = *self % rhs;
     }
 }
 
-impl Vec2 {
+impl<U: Unit> Rem<(f32, f32)> for Vec2<U> {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: (f32, f32)) -> Self::Output {
+        Self {
+            x: self.x % rhs.0,
+            y: self.y % rhs.1,
+        }
+    }
+}
+
+impl<U: Unit> RemAssign<(f32, f32)> for Vec2<U> {
+    #[inline]
+    fn rem_assign(&mut self, rhs: (f32, f32)) {
+        *self = *self % rhs;
+    }
+}
+
+impl<U: Unit> Rem<[f32; 2]> for Vec2<U> {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: [f32; 2]) -> Self::Output {
+        Self {
+            x: self.x % rhs[0],
+            y: self.y % rhs[1],
+        }
+    }
+}
+
+impl<U: Unit> RemAssign<[f32; 2]> for Vec2<U> {
+    #[inline]
+    fn rem_assign(&mut self, rhs: [f32; 2]) {
+        *self = *self % rhs;
+    }
+}
+
+impl<U: Unit> Vec2<U> {
     #[inline]
     pub const fn min(self, rhs: Self) -> Self {
         Self {
@@ -289,6 +783,46 @@ impl Vec2 {
         Self {
             x: self.x.max(rhs.x),
             y: self.y.max(rhs.y),
+        }
+    }
+
+    #[inline]
+    pub const fn clamp(self, min: Self, max: Self) -> Self {
+        Self {
+            x: self.x.clamp(min.x, max.x),
+            y: self.y.clamp(min.y, max.y),
+        }
+    }
+
+    #[inline]
+    pub const fn floor(self) -> Self {
+        Self {
+            x: self.x.floor(),
+            y: self.y.floor(),
+        }
+    }
+
+    #[inline]
+    pub const fn ceil(self) -> Self {
+        Self {
+            x: self.x.ceil(),
+            y: self.y.ceil(),
+        }
+    }
+
+    #[inline]
+    pub const fn round(self) -> Self {
+        Self {
+            x: self.x.round(),
+            y: self.y.round(),
+        }
+    }
+
+    #[inline]
+    pub const fn fract(self) -> Self {
+        Self {
+            x: self.x.fract(),
+            y: self.y.fract(),
         }
     }
 }

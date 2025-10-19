@@ -1,7 +1,7 @@
-use crate::{Pixel, Vec2};
+use crate::{Float, Pixel, Vec2};
 use bitflags::bitflags;
 
-pub const PIXELS_PER_SCROLL_LINE: Pixel = 40.0;
+pub const PIXELS_PER_SCROLL_LINE: Float<Pixel> = Float::new(40.0);
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy)]
@@ -16,20 +16,20 @@ bitflags! {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MouseState {
-    pub position: Vec2,
+    pub position: Vec2<Pixel>,
     pub pressed_buttons: MouseButtons,
-    pub scroll_delta: Vec2,
+    pub scroll_delta: Vec2<Pixel>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct InputState {
-    prev_position: Vec2,
-    position: Vec2,
+    prev_position: Vec2<Pixel>,
+    position: Vec2<Pixel>,
 
     prev_pressed_buttons: MouseButtons,
     pressed_buttons: MouseButtons,
 
-    scroll_delta: Vec2,
+    scroll_delta: Vec2<Pixel>,
 }
 
 impl InputState {
@@ -44,12 +44,12 @@ impl InputState {
     }
 
     #[inline]
-    pub fn mouse_position(&self) -> Vec2 {
+    pub fn mouse_position(&self) -> Vec2<Pixel> {
         self.position
     }
 
     #[inline]
-    pub fn mouse_delta(&self) -> Vec2 {
+    pub fn mouse_delta(&self) -> Vec2<Pixel> {
         self.position - self.prev_position
     }
 
@@ -69,7 +69,7 @@ impl InputState {
     }
 
     #[inline]
-    pub fn scroll_delta(&self) -> Vec2 {
+    pub fn scroll_delta(&self) -> Vec2<Pixel> {
         self.scroll_delta
     }
 }

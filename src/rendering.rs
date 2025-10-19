@@ -7,28 +7,36 @@ pub use parley::{Cluster, Decoration, FontData, Glyph, GlyphRun, Run, RunMetrics
 pub trait Renderer {
     type Error;
 
-    fn push_clip_rect(&mut self, position: Vec2, size: Vec2) -> Result<(), Self::Error>;
+    fn push_clip_rect(
+        &mut self,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+    ) -> Result<(), Self::Error>;
 
     fn pop_clip_rect(&mut self) -> Result<(), Self::Error>;
 
     fn draw_rect(
         &mut self,
-        position: Vec2,
-        size: Vec2,
-        corner_radius: f32,
-        stroke_width: f32,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+        corner_radius: Float<Pixel>,
+        stroke_width: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error>;
 
     fn fill_rect(
         &mut self,
-        position: Vec2,
-        size: Vec2,
-        corner_radius: f32,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+        corner_radius: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error>;
 
-    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2) -> Result<(), Self::Error>;
+    fn draw_text(
+        &mut self,
+        text: GlyphRun<'_, Color>,
+        position: Vec2<Pixel>,
+    ) -> Result<(), Self::Error>;
 }
 
 impl ByorGui {
@@ -46,7 +54,12 @@ impl ByorGui {
         ];
 
         let node = &self.nodes[node_id];
-        renderer.fill_rect(node.position, node.size, 5.0, LAYER_COLORS[depth])?;
+        renderer.fill_rect(
+            node.position,
+            node.style.fixed_size,
+            5.px(),
+            LAYER_COLORS[depth],
+        )?;
 
         let (clip_position, clip_size) = node.clip_bounds();
         renderer.push_clip_rect(clip_position, clip_size)?;

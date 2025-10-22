@@ -182,12 +182,12 @@ dependencies = [
  "anyhow",
  "bitflags 2.9.4",
  "byor_gui_procmacro",
+ "cranelift-entity",
  "intmap",
  "modular-bitfield",
  "parley",
  "pollster",
  "rapidhash",
- "slotmap",
  "smallbox",
  "smallvec",
  "vello",
@@ -389,6 +389,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77745e017f5edba1a9c1d854f6f3a52dac8a12dd5af5d2f54aecf61e43d80d30"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "cranelift-bitset"
+version = "0.124.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3067ca8c10796434497a5faac73d949b5ac0008ed572013debe88694bfef426e"
+
+[[package]]
+name = "cranelift-entity"
+version = "0.124.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3d7bf1aae1800d053aa965381dcb01054404d0bcd8ea5ffe65bb855b8e3f654"
+dependencies = [
+ "cranelift-bitset",
 ]
 
 [[package]]

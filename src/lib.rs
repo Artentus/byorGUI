@@ -3,19 +3,20 @@ mod layout;
 mod math;
 pub mod rendering;
 pub mod style;
+mod tree;
 mod widgets;
 
+use cranelift_entity::PrimaryMap;
 use input::*;
 use intmap::{IntKey, IntMap};
 pub use math::*;
 use parley::layout::Layout as TextLayout;
-use slotmap::{SecondaryMap, SlotMap};
 use smallbox::smallbox;
-use smallvec::SmallVec;
 use std::any::Any;
 use std::ops::Deref;
 use style::computed::*;
 use style::*;
+use tree::*;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
@@ -74,11 +75,16 @@ pub struct Uid(u64);
 
 impl Uid {
     #[must_use]
+    #[inline(never)]
     pub const fn new(value: &[u8]) -> Self {
-        Self(rapidhash::v3::rapidhash_v3(value))
+        Self(rapidhash::v3::rapidhash_v3_inline::<true, false, false>(
+            value,
+            &rapidhash::v3::DEFAULT_RAPID_SECRETS,
+        ))
     }
 
     #[must_use]
+    #[inline(never)]
     pub const fn concat(self, other: Self) -> Self {
         let low_bytes = self.0.to_le_bytes();
         let high_bytes = other.0.to_le_bytes();
@@ -100,7 +106,11 @@ impl Uid {
             high_bytes[6],
             high_bytes[7],
         ];
-        Self::new(&bytes)
+
+        Self(rapidhash::v3::rapidhash_v3_inline::<true, false, false>(
+            &bytes,
+            &rapidhash::v3::DEFAULT_RAPID_SECRETS,
+        ))
     }
 }
 
@@ -110,16 +120,23 @@ impl IntKey for Uid {
     // values are pre-hashed so we don't need to "hash" again
     const PRIME: Self::Int = 1;
 
+    #[inline]
     fn into_int(self) -> Self::Int {
         self.0
     }
 }
 
-slotmap::new_key_type! {
-    struct NodeId;
+macro_rules! define_id_type {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[repr(transparent)]
+        struct $name(u32);
 
-    struct TextLayoutId;
+        cranelift_entity::entity_impl!($name);
+    };
 }
+
+define_id_type!(TextLayoutId);
 
 struct Node {
     uid: Option<Uid>,
@@ -188,23 +205,300 @@ pub struct PreviousState {
     pub position: Vec2<Pixel>,
 }
 
-const INLINE_NODE_ID_COUNT: usize = (2 * size_of::<usize>()) / size_of::<NodeId>();
-type NodeIdVec = SmallVec<[NodeId; INLINE_NODE_ID_COUNT]>;
-
 #[derive(Default)]
-pub struct ByorGui {
-    nodes: SlotMap<NodeId, Node>,
-    children: SecondaryMap<NodeId, NodeIdVec>,
-    text_layouts: SlotMap<TextLayoutId, TextLayout<Color>>,
-
+struct ByorGuiData {
+    text_layouts: PrimaryMap<TextLayoutId, TextLayout<Color>>,
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
 
     root_style: Style,
     scale_factor: f32,
     input_state: InputState,
-    root_id: Option<NodeId>,
     hovered_node_override: Option<Uid>,
+}
+
+#[derive(Default)]
+pub struct ByorGui {
+    tree: Tree<Node>,
+    data: ByorGuiData,
+}
+
+struct ByorGuiSubtreeView<'tree, 'data, M: Mutability> {
+    subtree: TreeRef<'tree, Node, M>,
+    data: M::Ref<'data, ByorGuiData>,
+}
+
+impl<M: Mutability> ByorGuiSubtreeView<'_, '_, M> {
+    #[inline]
+    fn reborrow(&self) -> ByorGuiSubtreeView<'_, '_, Shared> {
+        ByorGuiSubtreeView {
+            subtree: self.subtree.reborrow(),
+            data: &self.data,
+        }
+    }
+}
+
+impl ByorGuiSubtreeView<'_, '_, Exclusive> {
+    #[inline]
+    fn reborrow_mut(&mut self) -> ByorGuiSubtreeView<'_, '_, Exclusive> {
+        ByorGuiSubtreeView {
+            subtree: self.subtree.reborrow_mut(),
+            data: &mut self.data,
+        }
+    }
+}
+
+impl ByorGui {
+    #[inline]
+    fn view(&self) -> Option<ByorGuiSubtreeView<'_, '_, Shared>> {
+        Some(ByorGuiSubtreeView {
+            subtree: self.tree.as_ref()?,
+            data: &self.data,
+        })
+    }
+
+    #[inline]
+    fn view_mut(&mut self) -> Option<ByorGuiSubtreeView<'_, '_, Exclusive>> {
+        Some(ByorGuiSubtreeView {
+            subtree: self.tree.as_mut()?,
+            data: &mut self.data,
+        })
+    }
+}
+
+impl ByorGuiSubtreeView<'_, '_, Exclusive> {
+    #[must_use]
+    fn compute_previous_state(mut self, mouse_in_parent_clip_bounds: bool) -> Option<Uid> {
+        let mut hovered_node = None;
+
+        let TreeRef {
+            parent: node,
+            mut descendants,
+        } = self.subtree;
+
+        let mouse_position = self.data.input_state.mouse_position();
+        let mouse_in_bounds = mouse_in_parent_clip_bounds
+            && point_in_rect(mouse_position, node.position, node.style.fixed_size);
+
+        let (clip_position, clip_size) = node.clip_bounds();
+        let mouse_in_clip_bounds =
+            mouse_in_bounds && point_in_rect(mouse_position, clip_position, clip_size);
+
+        iter_subtrees!(descendants => |mut subtree| {
+            let subtree_view = ByorGuiSubtreeView { subtree, data: &mut self.data };
+
+            if let Some(uid) = subtree_view.compute_previous_state(mouse_in_clip_bounds) {
+                assert!(hovered_node.is_none(), "multiple nodes hovered");
+                hovered_node = Some(uid);
+            }
+        });
+
+        if let Some(uid) = node.uid {
+            let mut child_count = 0u32;
+            let mut total_content_size = Vec2::default();
+            let mut max_content_size = Vec2::default();
+            iter_children!(descendants => |child| {
+                child_count += 1;
+                total_content_size += child.style.fixed_size;
+                max_content_size = max_content_size.max(child.style.fixed_size);
+            });
+
+            let total_spacing = (child_count.saturating_sub(1) as f32) * node.style.child_spacing();
+
+            let state = self.data.previous_state.entry(uid).or_default();
+            state.referenced = true; // this state is indeed still referenced
+
+            state.hover_state = if let Some(hovered_node_override) = self.data.hovered_node_override
+            {
+                if uid == hovered_node_override {
+                    hovered_node = Some(uid);
+                    HoverState::DirectlyHovered
+                } else {
+                    HoverState::NotHovered
+                }
+            } else if mouse_in_bounds {
+                if hovered_node.is_none() {
+                    hovered_node = Some(uid);
+                    HoverState::DirectlyHovered
+                } else {
+                    HoverState::Hovered
+                }
+            } else {
+                HoverState::NotHovered
+            };
+
+            state.size = node.style.fixed_size;
+            state.content_size = match node.style.layout_direction() {
+                Direction::LeftToRight => Vec2 {
+                    x: total_content_size.x + total_spacing,
+                    y: max_content_size.y,
+                },
+                Direction::TopToBottom => Vec2 {
+                    x: max_content_size.x,
+                    y: total_content_size.y + total_spacing,
+                },
+            };
+            state.position = node.position;
+        }
+
+        hovered_node
+    }
+}
+
+impl ByorGui {
+    #[must_use]
+    #[inline]
+    pub fn root_style(&self) -> &Style {
+        &self.data.root_style
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn root_style_mut(&mut self) -> &mut Style {
+        &mut self.data.root_style
+    }
+
+    fn update_previous_states(&mut self) {
+        if self.data.input_state.pressed_buttons().is_empty() {
+            self.data.hovered_node_override = None;
+        }
+
+        self.data
+            .previous_state
+            .values_mut()
+            .for_each(|state| state.referenced = false);
+
+        let hovered_node = self
+            .view_mut()
+            .and_then(|view| view.compute_previous_state(true));
+
+        self.data.previous_state.retain(|_, state| state.referenced);
+
+        if !self.data.input_state.pressed_buttons().is_empty() {
+            self.data.hovered_node_override = hovered_node;
+        }
+    }
+
+    #[must_use]
+    #[inline(never)]
+    fn begin_frame<'gui>(
+        &'gui mut self,
+        screen_size: Vec2<Pixel>,
+        scale_factor: f32,
+        mouse_state: MouseState,
+    ) -> ByorGuiContext<'gui> {
+        self.data.text_layouts.clear();
+
+        self.data.scale_factor = scale_factor;
+        self.data.input_state.update(mouse_state);
+
+        let cascaded_style = self.root_style().cascade_root(screen_size);
+        let computed_style = compute_style(self.root_style(), &cascaded_style, None, scale_factor);
+        let root_builder = self.tree.insert_root(Node::new(None, computed_style));
+
+        ByorGuiContext {
+            builder: root_builder,
+            data: &mut self.data,
+            parent_style: cascaded_style,
+        }
+    }
+
+    #[inline(never)]
+    fn end_frame(&mut self) {
+        self.layout();
+        self.update_previous_states();
+    }
+
+    #[inline]
+    pub fn frame<R>(
+        &mut self,
+        screen_size: Vec2<Pixel>,
+        scale_factor: f32,
+        mouse_state: MouseState,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> R {
+        let context = self.begin_frame(screen_size, scale_factor, mouse_state);
+        let result = contents(context);
+        self.end_frame();
+
+        result
+    }
+}
+
+pub struct ByorGuiContext<'gui> {
+    builder: TreeBuilder<'gui, Node>,
+    data: &'gui mut ByorGuiData,
+    parent_style: CascadedStyle,
+}
+
+impl ByorGuiContext<'_> {
+    #[must_use]
+    #[inline(never)]
+    pub fn scale_factor(&self) -> f32 {
+        self.data.scale_factor
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn parent_style(&self) -> &CascadedStyle {
+        &self.parent_style
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn computed_parent_style(&self) -> &ComputedStyle {
+        &self.builder.parent_node().style
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn input_state(&self) -> &InputState {
+        &self.data.input_state
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
+        let state = self.data.persistent_state.get(uid)?;
+        let any = state.get(&key)?;
+        any.downcast_ref()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn get_persistent_state_mut<T: Any>(
+        &mut self,
+        uid: Uid,
+        key: PersistentStateKey,
+    ) -> Option<&mut T> {
+        let state = self.data.persistent_state.get_mut(uid)?;
+        let any = state.get_mut(&key)?;
+        any.downcast_mut()
+    }
+
+    #[inline]
+    pub fn get_or_insert_persistent_state<T: Any>(
+        &mut self,
+        uid: Uid,
+        key: PersistentStateKey,
+        default: impl FnOnce() -> T,
+    ) -> Option<&mut T> {
+        let state = self.data.persistent_state.entry(uid).or_default();
+        let any = state.entry(key).or_insert_with(|| smallbox!(default()));
+        any.downcast_mut()
+    }
+
+    #[inline]
+    pub fn insert_persistent_state<T: Any>(&mut self, uid: Uid, key: PersistentStateKey, value: T) {
+        let state = self.data.persistent_state.entry(uid).or_default();
+        state.insert(key, smallbox!(value));
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+        self.data.previous_state.get(uid)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -257,232 +551,21 @@ impl<T> NodeResponse<T> {
     }
 }
 
-struct ChildMutIter<'a> {
-    nodes: &'a mut SlotMap<NodeId, Node>,
-    children: &'a [NodeId],
-    index: usize,
-}
-
-impl ChildMutIter<'_> {
-    #[inline]
-    fn reset(&mut self) {
-        self.index = 0;
-    }
-
-    // this is a lending iterator, so we can't use the trait
-    fn next(&mut self) -> Option<&mut Node> {
-        self.children.get(self.index).map(|&child_id| {
-            self.index += 1;
-            &mut self.nodes[child_id]
-        })
-    }
-}
-
-impl ByorGui {
-    #[must_use]
-    #[inline]
-    pub fn root_style(&self) -> &Style {
-        &self.root_style
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn root_style_mut(&mut self) -> &mut Style {
-        &mut self.root_style
-    }
-
-    #[must_use]
-    fn child_count(&self, node_id: NodeId) -> usize {
-        self.children
-            .get(node_id)
-            .map(SmallVec::len)
-            .unwrap_or_default()
-    }
-
-    #[must_use]
-    fn child_ids(&self, node_id: NodeId) -> &[NodeId] {
-        self.children.get(node_id).map(Deref::deref).unwrap_or(&[])
-    }
-
-    fn iter_children(&self, node_id: NodeId) -> impl Iterator<Item = (NodeId, &Node)> {
-        self.child_ids(node_id)
-            .iter()
-            .map(|&child_id| (child_id, &self.nodes[child_id]))
-    }
-
-    #[must_use]
-    fn iter_children_mut(&mut self, node_id: NodeId) -> ChildMutIter<'_> {
-        ChildMutIter {
-            nodes: &mut self.nodes,
-            children: self.children.get(node_id).map(Deref::deref).unwrap_or(&[]),
-            index: 0,
-        }
-    }
-
-    #[must_use]
-    fn compute_previous_state(
-        &mut self,
-        node_id: NodeId,
-        mouse_in_parent_clip_bounds: bool,
-    ) -> Option<Uid> {
-        let mut hovered_node = None;
-
-        let node = &self.nodes[node_id];
-        let mouse_position = self.input_state.mouse_position();
-        let mouse_in_bounds = mouse_in_parent_clip_bounds
-            && point_in_rect(mouse_position, node.position, node.style.fixed_size);
-
-        let (clip_position, clip_size) = node.clip_bounds();
-        let mouse_in_clip_bounds =
-            mouse_in_bounds && point_in_rect(mouse_position, clip_position, clip_size);
-
-        // we have to use index-based iteration because of borrowing
-        let child_count = self.child_count(node_id);
-        for i in 0..child_count {
-            let child_id = self.child_ids(node_id)[i];
-            if let Some(uid) = self.compute_previous_state(child_id, mouse_in_clip_bounds) {
-                assert!(hovered_node.is_none(), "multiple nodes hovered");
-                hovered_node = Some(uid);
-            }
-        }
-
-        let node = &self.nodes[node_id];
-        if let Some(uid) = node.uid {
-            let mut total_content_size = Vec2::default();
-            let mut max_content_size = Vec2::default();
-            for (_, child) in self.iter_children(node_id) {
-                total_content_size += child.style.fixed_size;
-                max_content_size = max_content_size.max(child.style.fixed_size);
-            }
-
-            let total_spacing =
-                (self.child_count(node_id).saturating_sub(1) as f32) * node.style.child_spacing();
-
-            let state = self.previous_state.entry(uid).or_default();
-            state.referenced = true; // this state is indeed still referenced
-
-            state.hover_state = if let Some(hovered_node_override) = self.hovered_node_override {
-                if uid == hovered_node_override {
-                    hovered_node = Some(uid);
-                    HoverState::DirectlyHovered
-                } else {
-                    HoverState::NotHovered
-                }
-            } else if mouse_in_bounds {
-                if hovered_node.is_none() {
-                    hovered_node = Some(uid);
-                    HoverState::DirectlyHovered
-                } else {
-                    HoverState::Hovered
-                }
-            } else {
-                HoverState::NotHovered
-            };
-
-            state.size = node.style.fixed_size;
-            state.content_size = match node.style.layout_direction() {
-                Direction::LeftToRight => Vec2 {
-                    x: total_content_size.x + total_spacing,
-                    y: max_content_size.y,
-                },
-                Direction::TopToBottom => Vec2 {
-                    x: max_content_size.x,
-                    y: total_content_size.y + total_spacing,
-                },
-            };
-            state.position = node.position;
-        }
-
-        hovered_node
-    }
-
-    fn update_previous_states(&mut self, root_id: NodeId) {
-        if self.input_state.pressed_buttons().is_empty() {
-            self.hovered_node_override = None;
-        }
-
-        self.previous_state
-            .values_mut()
-            .for_each(|state| state.referenced = false);
-        let hovered_node = self.compute_previous_state(root_id, true);
-        self.previous_state.retain(|_, state| state.referenced);
-
-        if !self.input_state.pressed_buttons().is_empty() {
-            self.hovered_node_override = hovered_node;
-        }
-    }
-
-    #[must_use]
-    #[inline(never)]
-    fn begin_frame<'gui>(
-        &'gui mut self,
-        screen_size: Vec2<Pixel>,
-        scale_factor: f32,
-        mouse_state: MouseState,
-    ) -> ByorGuiContext<'gui> {
-        self.nodes.clear();
-        self.children.clear();
-        self.text_layouts.clear();
-
-        self.scale_factor = scale_factor;
-        self.input_state.update(mouse_state);
-
-        let cascaded_style = self.root_style().cascade_root(screen_size);
-        let computed_style = compute_style(self.root_style(), &cascaded_style, None, scale_factor);
-        let root_id = self.nodes.insert(Node::new(None, computed_style));
-        self.root_id = Some(root_id);
-
-        ByorGuiContext {
-            gui: self,
-            parent_id: root_id,
-            parent_style: cascaded_style,
-        }
-    }
-
-    #[inline(never)]
-    fn end_frame(&mut self) {
-        let root_id = self.root_id.unwrap();
-        self.layout(root_id);
-        self.update_previous_states(root_id);
-    }
-
-    #[inline]
-    pub fn frame<R>(
-        &mut self,
-        screen_size: Vec2<Pixel>,
-        scale_factor: f32,
-        mouse_state: MouseState,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
-        let context = self.begin_frame(screen_size, scale_factor, mouse_state);
-        let result = contents(context);
-        self.end_frame();
-
-        result
-    }
-
-    pub fn render<R: rendering::Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
-        if let Some(root_id) = self.root_id {
-            return self.render_impl(root_id, renderer);
-        }
-
-        Ok(())
-    }
-
+impl ByorGuiContext<'_> {
     #[must_use]
     #[inline(never)]
     fn compute_node_response(&self, uid: Option<Uid>) -> NodeResponse<()> {
         let hover_state = uid
-            .and_then(|uid| self.previous_state.get(uid))
+            .and_then(|uid| self.data.previous_state.get(uid))
             .map(|previous_state| previous_state.hover_state)
             .unwrap_or_default();
 
         let (pressed_buttons, clicked_buttons, released_buttons) =
             if hover_state == HoverState::DirectlyHovered {
                 (
-                    self.input_state.pressed_buttons(),
-                    self.input_state.clicked_buttons(),
-                    self.input_state.released_buttons(),
+                    self.data.input_state.pressed_buttons(),
+                    self.data.input_state.clicked_buttons(),
+                    self.data.input_state.released_buttons(),
                 )
             } else {
                 (
@@ -501,13 +584,13 @@ impl ByorGui {
         }
     }
 
-    fn layout_text(&mut self, text: &str, node_id: NodeId) {
+    fn layout_text(&mut self, text: &str) {
         use parley::style::{LineHeight, OverflowWrap, StyleProperty};
 
         global_cache::with_parley_global_data(|parley_global_data| {
             let mut builder = parley_global_data.builder(text, 1.0);
 
-            let style = &self.nodes[node_id].style;
+            let style = &self.builder.parent_node().style;
             builder.push_default(StyleProperty::Brush(style.text_color()));
             builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
             builder.push_default(StyleProperty::FontSize(style.font_size().value()));
@@ -519,23 +602,9 @@ impl ByorGui {
             builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
             builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
 
-            let text_layout = self.text_layouts.insert(builder.build(text));
-            self.nodes[node_id].text_layout = Some(text_layout);
+            let text_layout = self.data.text_layouts.push(builder.build(text));
+            self.builder.parent_node_mut().text_layout = Some(text_layout);
         });
-    }
-}
-
-pub struct ByorGuiContext<'gui> {
-    gui: &'gui mut ByorGui,
-    parent_id: NodeId,
-    parent_style: CascadedStyle,
-}
-
-impl ByorGuiContext<'_> {
-    #[must_use]
-    #[inline(never)]
-    pub fn scale_factor(&self) -> f32 {
-        self.gui.scale_factor
     }
 
     #[must_use]
@@ -544,35 +613,28 @@ impl ByorGuiContext<'_> {
         &'gui mut self,
         uid: Option<Uid>,
         style: &Style,
-        parent_id: NodeId,
     ) -> ByorGuiContext<'gui> {
         let cascaded_style = style.cascade(&self.parent_style);
         let computed_style = compute_style(
             style,
             &cascaded_style,
-            Some(&self.gui.nodes[self.parent_id].style),
-            self.gui.scale_factor,
+            Some(&self.builder.parent_node().style),
+            self.data.scale_factor,
         );
-        let node_id = self.gui.nodes.insert(Node::new(uid, computed_style));
 
-        self.gui
-            .children
-            .entry(parent_id)
-            .expect("invalid node ID in ancestor stack")
-            .or_default()
-            .push(node_id);
+        let builder = self.builder.insert(Node::new(uid, computed_style));
 
         ByorGuiContext {
-            gui: self.gui,
-            parent_id: node_id,
+            builder,
+            data: self.data,
             parent_style: cascaded_style,
         }
     }
 
     #[inline]
     pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let _ = self.insert_leaf_node(uid, style, self.parent_id);
-        self.gui.compute_node_response(uid)
+        let _ = self.insert_leaf_node(uid, style);
+        self.compute_node_response(uid)
     }
 
     #[inline]
@@ -582,9 +644,9 @@ impl ByorGuiContext<'_> {
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
-        let context = self.insert_leaf_node(uid, style, self.parent_id);
+        let context = self.insert_leaf_node(uid, style);
         let result = contents(context);
-        self.gui.compute_node_response(uid).map_result(|_| result)
+        self.compute_node_response(uid).map_result(|_| result)
     }
 
     #[inline]
@@ -594,71 +656,10 @@ impl ByorGuiContext<'_> {
         style: &Style,
         text: &str,
     ) -> NodeResponse<()> {
-        let node_id = self.insert_leaf_node(uid, style, self.parent_id).parent_id;
-        self.gui.layout_text(text, node_id);
-        self.gui.compute_node_response(uid)
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn parent_style(&self) -> &CascadedStyle {
-        &self.parent_style
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn computed_parent_style(&self) -> &ComputedStyle {
-        &self.gui.nodes[self.parent_id].style
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn input_state(&self) -> &InputState {
-        &self.gui.input_state
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
-        let state = self.gui.persistent_state.get(uid)?;
-        let any = state.get(&key)?;
-        any.downcast_ref()
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn get_persistent_state_mut<T: Any>(
-        &mut self,
-        uid: Uid,
-        key: PersistentStateKey,
-    ) -> Option<&mut T> {
-        let state = self.gui.persistent_state.get_mut(uid)?;
-        let any = state.get_mut(&key)?;
-        any.downcast_mut()
-    }
-
-    #[inline]
-    pub fn get_or_insert_persistent_state<T: Any>(
-        &mut self,
-        uid: Uid,
-        key: PersistentStateKey,
-        default: impl FnOnce() -> T,
-    ) -> Option<&mut T> {
-        let state = self.gui.persistent_state.entry(uid).or_default();
-        let any = state.entry(key).or_insert_with(|| smallbox!(default()));
-        any.downcast_mut()
-    }
-
-    #[inline]
-    pub fn insert_persistent_state<T: Any>(&mut self, uid: Uid, key: PersistentStateKey, value: T) {
-        let state = self.gui.persistent_state.entry(uid).or_default();
-        state.insert(key, smallbox!(value));
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
-        self.gui.previous_state.get(uid)
+        let mut context = self.insert_leaf_node(uid, style);
+        context.layout_text(text);
+        drop(context);
+        self.compute_node_response(uid)
     }
 }
 

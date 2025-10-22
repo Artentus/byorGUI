@@ -1,5 +1,6 @@
 use crate::style::axis::*;
 use crate::*;
+use smallvec::SmallVec;
 
 #[must_use]
 fn scroll_along_axis(
@@ -33,19 +34,21 @@ fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
     );
 }
 
-impl ByorGui {
+impl ByorGuiSubtreeView<'_, '_, Exclusive> {
     // must be bottom up recursive
-    fn compute_node_size(&mut self, node_id: NodeId, axis: Axis) {
+    fn compute_node_size(mut self, axis: Axis) {
         use parley::ContentWidths as TextMeasurements;
 
-        // we have to use index-based iteration because of borrowing
-        let child_count = self.child_count(node_id);
-        for child_index in 0..child_count {
-            let child_id = self.children[node_id][child_index];
-            self.compute_node_size(child_id, axis);
-        }
+        let TreeRef {
+            parent: node,
+            mut descendants,
+        } = self.subtree;
 
-        let node = &mut self.nodes[node_id];
+        iter_subtrees!(descendants => |mut subtree| {
+            let subtree_view = ByorGuiSubtreeView { subtree, data: &mut self.data };
+            subtree_view.compute_node_size(axis);
+        });
+
         let min_size = node.style.min_size.along_axis(axis);
         let max_size = node.style.max_size.along_axis(axis);
 
@@ -58,7 +61,7 @@ impl ByorGui {
             if let Some(&text_layout_id) = node.text_layout.as_ref()
                 && (axis == Axis::Y)
             {
-                let text_layout = &mut self.text_layouts[text_layout_id];
+                let text_layout = &mut self.data.text_layouts[text_layout_id];
                 wrap_text(node, text_layout);
             }
 
@@ -67,7 +70,7 @@ impl ByorGui {
 
         // text sizing
         if let Some(&text_layout_id) = node.text_layout.as_ref() {
-            let text_layout = &mut self.text_layouts[text_layout_id];
+            let text_layout = &mut self.data.text_layouts[text_layout_id];
             let padding: Float<Pixel> = node.style.padding().along_axis(axis).into_iter().sum();
 
             match axis {
@@ -111,25 +114,29 @@ impl ByorGui {
             let mut fit_size = min_fit_size;
 
             let (min_child_size, child_size) = if axis.is_primary(node.style.layout_direction()) {
-                let total_child_spacing =
-                    (child_count.saturating_sub(1) as f32) * node.style.child_spacing();
-
-                let mut total_min_child_size = total_child_spacing;
-                let mut total_child_size = total_child_spacing;
-                for (_, child) in self.iter_children(node_id) {
+                let mut child_count = 0u32;
+                let mut total_min_child_size = 0.px();
+                let mut total_child_size = 0.px();
+                iter_children!(descendants => |child| {
+                    child_count += 1;
                     total_min_child_size += child.style.min_size.along_axis(axis);
                     total_child_size += child.style.fixed_size.along_axis(axis);
-                }
+                });
+
+                let total_child_spacing =
+                    (child_count.saturating_sub(1) as f32) * node.style.child_spacing();
+                total_min_child_size += total_child_spacing;
+                total_child_size += total_child_spacing;
 
                 (total_min_child_size, total_child_size)
             } else {
                 let mut max_min_child_size = 0.px();
                 let mut max_child_size = 0.px();
-                for (_, child) in self.iter_children(node_id) {
+                iter_children!(descendants => |child| {
                     max_min_child_size =
                         max_min_child_size.max(child.style.min_size.along_axis(axis));
                     max_child_size = max_child_size.max(child.style.fixed_size.along_axis(axis));
-                }
+                });
 
                 (max_min_child_size, max_child_size)
             };
@@ -139,10 +146,9 @@ impl ByorGui {
             let min_fit_size = min_fit_size.clamp(min_size, max_size);
             let fit_size = fit_size.clamp(min_size, max_size);
 
-            let node = &mut self.nodes[node_id];
             let scroll = node
                 .uid
-                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis));
+                .and_then(|uid| scroll_along_axis(self.data.persistent_state.get(uid), axis));
 
             *node.style.min_size.along_axis_mut(axis) = if scroll.is_some() {
                 min_size
@@ -157,46 +163,50 @@ impl ByorGui {
     }
 
     // must be top down recursive
-    fn grow_or_shrink_children(&mut self, parent_id: NodeId, axis: Axis) {
-        let parent = &self.nodes[parent_id];
+    fn grow_or_shrink_children(mut self, axis: Axis) {
+        let TreeRef {
+            parent,
+            mut descendants,
+        } = self.subtree;
+
         let parent_size = parent.style.fixed_size.along_axis(axis);
         let parent_padding: Float<Pixel> =
             parent.style.padding().along_axis(axis).into_iter().sum();
 
-        let node_count = self.child_count(parent_id);
         if axis.is_primary(parent.style.layout_direction()) {
+            let node_count = descendants.child_count();
             let total_spacing =
                 (node_count.saturating_sub(1) as f32) * parent.style.child_spacing();
 
             let mut total_target_size = parent_size - parent_padding - total_spacing;
             let mut available_space = total_target_size;
-            let mut nodes_to_resize = NodeIdVec::new();
+            let mut nodes_to_resize = SmallVec::<[u32; 10]>::new();
             let mut flex_ratio_sum = 0.0;
-            for (node_id, node) in self.iter_children(parent_id) {
+            iter_child_indices!(descendants => |node, node_index| {
                 available_space -= node.style.fixed_size.along_axis(axis);
 
                 // filter out nodes that cannot be resized
                 if node.style.min_size.along_axis(axis) == node.style.max_size.along_axis(axis) {
                     total_target_size -= node.style.fixed_size.along_axis(axis);
                 } else {
-                    nodes_to_resize.push(node_id);
+                    nodes_to_resize.push(node_index);
                     flex_ratio_sum += node.style.flex_ratio();
                 }
-            }
+            });
 
             'grow_or_shrink: {
                 // if the parent supports scrolling, do not shrink nodes
                 let parent_scroll = parent
                     .uid
-                    .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis));
+                    .and_then(|uid| scroll_along_axis(self.data.persistent_state.get(uid), axis));
                 if parent_scroll.is_some() && (available_space <= 0.px()) {
                     break 'grow_or_shrink;
                 }
 
                 loop {
                     let mut collection_changed = false;
-                    nodes_to_resize.retain(|&mut node_id| {
-                        let node = &mut self.nodes[node_id];
+                    nodes_to_resize.retain(|&mut node_index| {
+                        let node = &mut descendants[node_index];
 
                         let min_size = node.style.min_size.along_axis(axis);
                         let max_size = node.style.max_size.along_axis(axis);
@@ -228,7 +238,7 @@ impl ByorGui {
                 }
 
                 for node_id in nodes_to_resize.drain(..) {
-                    let node = &mut self.nodes[node_id];
+                    let node = &mut descendants[node_id];
 
                     let flex_ratio = node.style.flex_ratio();
                     let flex_factor = if flex_ratio_sum > 0.0 {
@@ -242,30 +252,28 @@ impl ByorGui {
             }
         } else {
             let available_space = parent_size - parent_padding;
-            let mut nodes = self.iter_children_mut(parent_id);
-            while let Some(node) = nodes.next() {
+            iter_children!(descendants => |mut node| {
                 let node_min_size = node.style.min_size.along_axis(axis);
                 let node_max_size = node.style.max_size.along_axis(axis);
                 *node.style.fixed_size.along_axis_mut(axis) =
                     available_space.clamp(node_min_size, node_max_size);
-            }
+            });
         }
 
-        // we have to use index-based iteration because of borrowing
-        for node_index in 0..node_count {
-            let node_id = self.children[parent_id][node_index];
-            self.grow_or_shrink_children(node_id, axis);
-        }
+        iter_subtrees!(descendants => |mut subtree| {
+            let subtree_view = ByorGuiSubtreeView { subtree, data: &mut self.data };
+            subtree_view.grow_or_shrink_children(axis);
+        });
     }
 
-    fn position_children(&mut self, parent_id: NodeId) {
-        let parent = &mut self.nodes[parent_id];
-        let parent_layout_direction = parent.style.layout_direction();
-        let parent_child_spacing = parent.style.child_spacing();
-        let parent_child_alignment = parent.style.child_alignment();
+    fn position_children(mut self) {
+        let TreeRef {
+            parent,
+            mut descendants,
+        } = self.subtree;
 
         if let Some(&text_layout_id) = parent.text_layout.as_ref() {
-            let text_layout = &self.text_layouts[text_layout_id];
+            let text_layout = &self.data.text_layouts[text_layout_id];
 
             parent.vertical_text_offset = match parent.style.vertical_text_alignment() {
                 VerticalTextAlignment::Top => 0.px(),
@@ -287,30 +295,27 @@ impl ByorGui {
 
         // primary axis
         {
-            let axis = parent_layout_direction.primary_axis();
+            let axis = parent.style.layout_direction().primary_axis();
 
-            let parent = &self.nodes[parent_id];
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.style.fixed_size.along_axis(axis);
             let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
-                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis))
+                .and_then(|uid| scroll_along_axis(self.data.persistent_state.get(uid), axis))
                 .unwrap_or_default();
 
-            let mut nodes = self.iter_children_mut(parent_id);
-
             let mut offset = 0.px();
-            while let Some(node) = nodes.next() {
+            iter_children!(descendants => |mut node| {
                 *node.position.along_axis_mut(axis) =
                     parent_position + parent_padding[0] + offset - parent_scroll;
 
                 offset += node.style.fixed_size.along_axis(axis);
-                offset += parent_child_spacing;
-            }
+                offset += parent.style.child_spacing();
+            });
 
-            let total_node_size = (offset - parent_child_spacing).max(0.px());
-            let alignment_offset = match parent_child_alignment {
+            let total_node_size = (offset - parent.style.child_spacing()).max(0.px());
+            let alignment_offset = match parent.style.child_alignment() {
                 Alignment::Start => 0.px(),
                 Alignment::Center => (parent_size - total_node_size) / 2.0 - parent_padding[0],
                 Alignment::End => {
@@ -318,28 +323,24 @@ impl ByorGui {
                 }
             };
 
-            nodes.reset();
-            while let Some(node) = nodes.next() {
+            iter_children!(descendants => |mut node| {
                 *node.position.along_axis_mut(axis) += alignment_offset.max(0.px());
-            }
+            });
         }
 
         // cross axis
         {
-            let axis = parent_layout_direction.cross_axis();
+            let axis = parent.style.layout_direction().cross_axis();
 
-            let parent = &self.nodes[parent_id];
             let parent_position = parent.position.along_axis(axis);
             let parent_size = parent.style.fixed_size.along_axis(axis);
             let parent_padding = parent.style.padding().along_axis(axis);
             let parent_scroll = parent
                 .uid
-                .and_then(|uid| scroll_along_axis(self.persistent_state.get(uid), axis))
+                .and_then(|uid| scroll_along_axis(self.data.persistent_state.get(uid), axis))
                 .unwrap_or_default();
 
-            let mut nodes = self.iter_children_mut(parent_id);
-
-            while let Some(node) = nodes.next() {
+            iter_children!(descendants => |mut node| {
                 *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment() {
                     Alignment::Start => parent_position + parent_padding[0],
                     Alignment::Center => {
@@ -352,22 +353,24 @@ impl ByorGui {
                             - parent_padding[1]
                     }
                 } - parent_scroll;
-            }
+            });
         }
 
-        // we have to use index-based iteration because of borrowing
-        let node_count = self.child_count(parent_id);
-        for node_index in 0..node_count {
-            let node_id = self.children[parent_id][node_index];
-            self.position_children(node_id);
-        }
+        iter_subtrees!(descendants => |mut subtree| {
+            let subtree_view = ByorGuiSubtreeView { subtree, data: &mut self.data };
+            subtree_view.position_children();
+        });
     }
+}
 
-    pub(crate) fn layout(&mut self, root_id: NodeId) {
-        self.compute_node_size(root_id, Axis::X);
-        self.grow_or_shrink_children(root_id, Axis::X);
-        self.compute_node_size(root_id, Axis::Y);
-        self.grow_or_shrink_children(root_id, Axis::Y);
-        self.position_children(root_id);
+impl ByorGui {
+    pub(crate) fn layout(&mut self) {
+        if let Some(mut view) = self.view_mut() {
+            view.reborrow_mut().compute_node_size(Axis::X);
+            view.reborrow_mut().grow_or_shrink_children(Axis::X);
+            view.reborrow_mut().compute_node_size(Axis::Y);
+            view.reborrow_mut().grow_or_shrink_children(Axis::Y);
+            view.reborrow_mut().position_children();
+        }
     }
 }

@@ -39,13 +39,8 @@ pub trait Renderer {
     ) -> Result<(), Self::Error>;
 }
 
-impl ByorGui {
-    fn draw_node<R: Renderer>(
-        &self,
-        node_id: NodeId,
-        depth: usize,
-        renderer: &mut R,
-    ) -> Result<(), R::Error> {
+impl ByorGuiSubtreeView<'_, '_, Shared> {
+    fn draw_node<R: Renderer>(self, depth: usize, renderer: &mut R) -> Result<(), R::Error> {
         const LAYER_COLORS: &[Color] = &[
             Color::rgb(10, 110, 137),
             Color::rgb(253, 147, 141),
@@ -53,7 +48,11 @@ impl ByorGui {
             Color::rgb(254, 216, 77),
         ];
 
-        let node = &self.nodes[node_id];
+        let TreeRef {
+            parent: node,
+            descendants,
+        } = self.subtree;
+
         renderer.fill_rect(
             node.position,
             node.style.fixed_size,
@@ -65,7 +64,7 @@ impl ByorGui {
         renderer.push_clip_rect(clip_position, clip_size)?;
 
         if let Some(&text_layout_id) = node.text_layout.as_ref() {
-            let text_layout = &self.text_layouts[text_layout_id];
+            let text_layout = &self.data.text_layouts[text_layout_id];
 
             for line in text_layout.lines() {
                 for item in line.items() {
@@ -87,19 +86,22 @@ impl ByorGui {
             }
         }
 
-        for &child_id in self.children.get(node_id).into_iter().flatten() {
-            self.draw_node(child_id, depth + 1, renderer)?;
-        }
+        iter_subtrees!(descendants => |subtree| {
+            let subtree_view = ByorGuiSubtreeView { subtree, data: self.data };
+            subtree_view.draw_node(depth + 1, renderer)?;
+        });
 
         renderer.pop_clip_rect()?;
         Ok(())
     }
+}
 
-    pub(crate) fn render_impl<R: Renderer>(
-        &mut self,
-        root_id: NodeId,
-        renderer: &mut R,
-    ) -> Result<(), R::Error> {
-        self.draw_node(root_id, 0, renderer)
+impl ByorGui {
+    pub fn render<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
+        if let Some(view) = self.view() {
+            return view.reborrow().draw_node(0, renderer);
+        }
+
+        Ok(())
     }
 }

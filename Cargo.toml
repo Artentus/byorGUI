@@ -17,7 +17,7 @@ unique_global_cache = []
 
 [dependencies]
 byor_gui_procmacro = { path = "./byor_gui_procmacro" }
-slotmap = "1.0.7"
+cranelift-entity = "0.124.2"
 smallvec = { version = "1.15.1", features = ["union"] }
 intmap = "3.1.2"
 rapidhash = "4.1.0"

@@ -178,11 +178,12 @@ pub enum PersistentStateKey {
     HorizontalScroll,
     VerticalScroll,
     ScrollBarThumbMouseOffset,
+    FloatPosition,
 
     Custom(&'static str),
 }
 
-type PersistentState = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 1>>;
+type PersistentState = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 2>>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HoverState {
@@ -333,7 +334,9 @@ impl ByorGui {
         let mut hovered_node = None;
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
-            hovered_node = compute_previous_state(tree, &mut self.data, true);
+            if let Some(uid) = compute_previous_state(tree, &mut self.data, true) {
+                hovered_node = Some(uid);
+            }
         }
 
         self.data.previous_state.retain(|_, state| state.referenced);
@@ -577,6 +580,7 @@ impl ByorGuiContext<'_> {
         &'gui mut self,
         uid: Option<Uid>,
         style: &Style,
+        is_root: bool,
     ) -> ByorGuiContext<'gui> {
         let cascaded_style = style.cascade(&self.parent_style);
         let computed_style = compute_style(
@@ -586,7 +590,7 @@ impl ByorGuiContext<'_> {
             self.data.scale_factor,
         );
 
-        let builder = self.builder.insert(Node::new(uid, computed_style), false);
+        let builder = self.builder.insert(Node::new(uid, computed_style), is_root);
 
         ByorGuiContext {
             builder,
@@ -597,7 +601,7 @@ impl ByorGuiContext<'_> {
 
     #[inline]
     pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let _ = self.insert_leaf_node(uid, style);
+        let _ = self.insert_leaf_node(uid, style, false);
         self.compute_node_response(uid)
     }
 
@@ -608,7 +612,7 @@ impl ByorGuiContext<'_> {
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
-        let context = self.insert_leaf_node(uid, style);
+        let context = self.insert_leaf_node(uid, style, false);
         let result = contents(context);
         self.compute_node_response(uid).map_result(|_| result)
     }
@@ -620,10 +624,76 @@ impl ByorGuiContext<'_> {
         style: &Style,
         text: &str,
     ) -> NodeResponse<()> {
-        let mut context = self.insert_leaf_node(uid, style);
+        let mut context = self.insert_leaf_node(uid, style, false);
         context.layout_text(text);
         drop(context);
         self.compute_node_response(uid)
+    }
+
+    #[inline(never)]
+    fn update_float_position(&mut self, uid: Uid, position: FloatPosition) {
+        let persistent_state = self.data.persistent_state.entry(uid).or_default();
+
+        match position {
+            FloatPosition::Cursor => {
+                let cursor_position = self.data.input_state.mouse_position();
+
+                persistent_state.insert(
+                    PersistentStateKey::FloatPosition,
+                    smallbox!(PersistentFloatPosition::Cursor {
+                        x: cursor_position.x,
+                        y: cursor_position.y,
+                    }),
+                );
+            }
+            FloatPosition::CursorFixed => {
+                if let Some(value) = persistent_state.get(&PersistentStateKey::FloatPosition)
+                    && let Some(PersistentFloatPosition::CursorFixed { .. }) =
+                        value.downcast_ref::<PersistentFloatPosition>()
+                {
+                } else {
+                    let cursor_position = self.data.input_state.mouse_position();
+
+                    persistent_state.insert(
+                        PersistentStateKey::FloatPosition,
+                        smallbox!(PersistentFloatPosition::CursorFixed {
+                            x: cursor_position.x,
+                            y: cursor_position.y,
+                        }),
+                    );
+                }
+            }
+            FloatPosition::Fixed { x, y } => {
+                let parent_font_size = self.builder.parent_node().style.font_size().value();
+
+                persistent_state.insert(
+                    PersistentStateKey::FloatPosition,
+                    smallbox!(PersistentFloatPosition::Fixed {
+                        x: x.to_pixel(self.data.scale_factor, parent_font_size),
+                        y: y.to_pixel(self.data.scale_factor, parent_font_size),
+                    }),
+                );
+            }
+            FloatPosition::Popup { x, y } => {
+                persistent_state.insert(
+                    PersistentStateKey::FloatPosition,
+                    smallbox!(PersistentFloatPosition::Popup { x, y }),
+                );
+            }
+        }
+    }
+
+    pub fn insert_floating_node<R>(
+        &mut self,
+        uid: Uid,
+        position: FloatPosition,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> NodeResponse<R> {
+        self.update_float_position(uid, position);
+        let context = self.insert_leaf_node(Some(uid), style, true);
+        let result = contents(context);
+        self.compute_node_response(Some(uid)).map_result(|_| result)
     }
 }
 

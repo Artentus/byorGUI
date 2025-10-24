@@ -41,7 +41,7 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
     let TreeRef {
         parent: node,
         mut descendants,
-        ..
+        is_root,
     } = tree;
 
     iter_subtrees!(descendants => |mut subtree| {
@@ -98,7 +98,7 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
             }
         }
 
-        if node.style.size_along_axis(axis) != ComputedSizing::Grow {
+        if is_root || (node.style.size_along_axis(axis) != ComputedSizing::Grow) {
             *node.style.max_size.along_axis_mut(axis) = node.style.fixed_size.along_axis(axis);
         }
 
@@ -154,7 +154,7 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
             min_fit_size
         };
         *node.style.fixed_size.along_axis_mut(axis) = fit_size;
-        if node.style.size_along_axis(axis) != ComputedSizing::Grow {
+        if is_root || (node.style.size_along_axis(axis) != ComputedSizing::Grow) {
             *node.style.max_size.along_axis_mut(axis) = fit_size;
         }
     }
@@ -290,68 +290,102 @@ fn position_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData)
         };
     }
 
-    // primary axis
-    {
-        let axis = parent.style.layout_direction().primary_axis();
+    let primary_axis = parent.style.layout_direction().primary_axis();
+    let cross_axis = parent.style.layout_direction().cross_axis();
+    let parent_persistent_state = parent.uid.and_then(|uid| data.persistent_state.get(uid));
 
-        let parent_position = parent.position.along_axis(axis);
-        let parent_size = parent.style.fixed_size.along_axis(axis);
-        let parent_padding = parent.style.padding().along_axis(axis);
-        let parent_scroll = parent
-            .uid
-            .and_then(|uid| scroll_along_axis(data.persistent_state.get(uid), axis))
-            .unwrap_or_default();
+    let parent_primary_position = parent.position.along_axis(primary_axis);
+    let parent_cross_position = parent.position.along_axis(cross_axis);
+    let parent_primary_size = parent.style.fixed_size.along_axis(primary_axis);
+    let parent_cross_size = parent.style.fixed_size.along_axis(cross_axis);
+    let parent_primary_padding = parent.style.padding().along_axis(primary_axis);
+    let parent_cross_padding = parent.style.padding().along_axis(cross_axis);
+    let parent_primary_scroll =
+        scroll_along_axis(parent_persistent_state, primary_axis).unwrap_or_default();
+    let parent_cross_scroll =
+        scroll_along_axis(parent_persistent_state, cross_axis).unwrap_or_default();
 
-        let mut offset = 0.px();
-        iter_children!(descendants => |mut node| {
-            *node.position.along_axis_mut(axis) =
-                parent_position + parent_padding[0] + offset - parent_scroll;
+    let mut total_primary_node_size = 0.px();
+    iter_children!(descendants => |node| {
+        total_primary_node_size += node.style.fixed_size.along_axis(primary_axis);
+        total_primary_node_size += parent.style.child_spacing();
+    });
+    total_primary_node_size = (total_primary_node_size - parent.style.child_spacing()).max(0.px());
 
-            offset += node.style.fixed_size.along_axis(axis);
-            offset += parent.style.child_spacing();
-        });
-
-        let total_node_size = (offset - parent.style.child_spacing()).max(0.px());
-        let alignment_offset = match parent.style.child_alignment() {
-            Alignment::Start => 0.px(),
-            Alignment::Center => (parent_size - total_node_size) / 2.0 - parent_padding[0],
-            Alignment::End => parent_size - total_node_size - parent_padding[0] - parent_padding[1],
-        };
-
-        iter_children!(descendants => |mut node| {
-            *node.position.along_axis_mut(axis) += alignment_offset.max(0.px());
-        });
-    }
-
-    // cross axis
-    {
-        let axis = parent.style.layout_direction().cross_axis();
-
-        let parent_position = parent.position.along_axis(axis);
-        let parent_size = parent.style.fixed_size.along_axis(axis);
-        let parent_padding = parent.style.padding().along_axis(axis);
-        let parent_scroll = parent
-            .uid
-            .and_then(|uid| scroll_along_axis(data.persistent_state.get(uid), axis))
-            .unwrap_or_default();
-
-        iter_children!(descendants => |mut node| {
-            *node.position.along_axis_mut(axis) = match node.style.cross_axis_alignment() {
-                Alignment::Start => parent_position + parent_padding[0],
-                Alignment::Center => {
-                    parent_position
-                        + (parent_size - node.style.fixed_size.along_axis(axis)) / 2.0
-                }
-                Alignment::End => {
-                    parent_position + parent_size
-                        - node.style.fixed_size.along_axis(axis)
-                        - parent_padding[1]
-                }
-            } - parent_scroll;
-        });
-    }
+    let mut primary_offset = match parent.style.child_alignment() {
+        Alignment::Start => 0.px(),
+        Alignment::Center => {
+            (parent_primary_size - total_primary_node_size) / 2.0 - parent_primary_padding[0]
+        }
+        Alignment::End => {
+            parent_primary_size
+                - total_primary_node_size
+                - parent_primary_padding[0]
+                - parent_primary_padding[1]
+        }
+    };
+    primary_offset = primary_offset.max(0.px());
 
     iter_subtrees!(descendants => |mut subtree| {
+        let TreeRef { parent: node, is_root, .. } = subtree.reborrow_mut();
+
+        if is_root {
+            node.position = if let Some(uid) = node.uid
+                && let Some(&float_pos) = data
+                    .persistent_state
+                    .get(uid)
+                    .and_then(|state| state.get(&PersistentStateKey::FloatPosition))
+                    .and_then(|value| value.downcast_ref::<PersistentFloatPosition>())
+            {
+                match float_pos {
+                    PersistentFloatPosition::Cursor { x, y }
+                    | PersistentFloatPosition::CursorFixed { x, y }
+                    | PersistentFloatPosition::Fixed { x, y } => {
+                        Vec2 { x, y }
+                    }
+                    PersistentFloatPosition::Popup { x, y } => {
+                        Vec2 {
+                            x: match x {
+                                PopupPosition::BeforeParent => parent.position.x - node.style.fixed_size.x,
+                                PopupPosition::ParentStart => parent.position.x,
+                                PopupPosition::ParentEnd => parent.position.x + parent.style.fixed_size.x - node.style.fixed_size.x,
+                                PopupPosition::AfterParent => parent.position.x + parent.style.fixed_size.x,
+                            },
+                            y: match y {
+                                PopupPosition::BeforeParent => parent.position.y - node.style.fixed_size.y,
+                                PopupPosition::ParentStart => parent.position.y,
+                                PopupPosition::ParentEnd => parent.position.y + parent.style.fixed_size.y - node.style.fixed_size.y,
+                                PopupPosition::AfterParent => parent.position.y + parent.style.fixed_size.y,
+                            },
+                        }
+                    }
+                }
+            } else {
+                Vec2::ZERO
+            };
+        } else {
+            // primary axis
+            *node.position.along_axis_mut(primary_axis) =
+                parent_primary_position + parent_primary_padding[0] + primary_offset - parent_primary_scroll;
+
+            primary_offset += node.style.fixed_size.along_axis(primary_axis);
+            primary_offset += parent.style.child_spacing();
+
+            // cross axis
+            *node.position.along_axis_mut(cross_axis) = match node.style.cross_axis_alignment() {
+                Alignment::Start => parent_cross_position + parent_cross_padding[0],
+                Alignment::Center => {
+                    parent_cross_position
+                        + (parent_cross_size - node.style.fixed_size.along_axis(cross_axis)) / 2.0
+                }
+                Alignment::End => {
+                    parent_cross_position + parent_cross_size
+                        - node.style.fixed_size.along_axis(cross_axis)
+                        - parent_cross_padding[1]
+                }
+            } - parent_cross_scroll;
+        }
+
         position_children(subtree, data);
     });
 }

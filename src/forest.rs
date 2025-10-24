@@ -213,8 +213,10 @@ macro_rules! iter_subtrees {
     };
     ($tree:expr => |mut $subtree:ident| $body:stmt) => {
         let mut tree = $tree.reborrow_mut();
-        while let Some(($subtree, remaining)) = tree.split_first_mut() {
+        #[allow(unused_mut)]
+        while let Some((mut $subtree, remaining)) = tree.split_first_mut() {
             tree = remaining;
+            #[warn(unused_mut)]
             $body
         }
     };

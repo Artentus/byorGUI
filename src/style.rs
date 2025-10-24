@@ -290,6 +290,30 @@ impl Default for Color {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupPosition {
+    BeforeParent,
+    ParentStart,
+    ParentEnd,
+    AfterParent,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FloatPosition {
+    Cursor,
+    CursorFixed,
+    Fixed { x: Measurement, y: Measurement },
+    Popup { x: PopupPosition, y: PopupPosition },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PersistentFloatPosition {
+    Cursor { x: Float<Pixel>, y: Float<Pixel> },
+    CursorFixed { x: Float<Pixel>, y: Float<Pixel> },
+    Fixed { x: Float<Pixel>, y: Float<Pixel> },
+    Popup { x: PopupPosition, y: PopupPosition },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Property<T> {
     /// A property-specific default value (not necessarily the same as [`Default::default()`])

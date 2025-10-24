@@ -132,7 +132,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ScaleFactorChanged { .. } => {
-                self.required_redraws = self.required_redraws.max(1);
+                self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -206,7 +206,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                             .resize_surface(&mut state.surface, size.width, size.height);
                         state.surface_valid = true;
 
-                        self.required_redraws = self.required_redraws.max(1);
+                        self.required_redraws = self.required_redraws.max(2);
                         window.request_redraw();
                     } else {
                         state.surface_valid = false;
@@ -366,15 +366,6 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                     child_spacing: 5.pt(),
                 },
                 |mut gui| {
-                    gui.insert_node(
-                        None,
-                        &style! {
-                            width: 100.pt(),
-                            height: 100.pt(),
-                            cross_axis_alignment: Alignment::Center,
-                        },
-                    );
-
                     gui.insert_text_node(
                         None,
                         &style! {
@@ -385,7 +376,40 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                             horizontal_text_alignment: HorizontalTextAlignment::Center,
                             vertical_text_alignment: VerticalTextAlignment::Center,
                         },
-                        "lorem ipsum dolor sit amet",
+                        "Lorem ipsum dolor sit amet",
+                    );
+
+                    gui.insert_container_node(
+                        None,
+                        &style! {
+                            width: 100.pt(),
+                            height: 100.pt(),
+                            cross_axis_alignment: Alignment::Center,
+                        },
+                        |mut gui| {
+                            gui.insert_floating_node(
+                                Uid::new(b"popup"),
+                                FloatPosition::Popup {
+                                    x: PopupPosition::ParentStart,
+                                    y: PopupPosition::AfterParent,
+                                },
+                                &style! {
+                                    padding: 5.pt(),
+                                },
+                                |mut gui| {
+                                    gui.insert_text_node(
+                                        None,
+                                        &style! {
+                                            max_width: 300.px(),
+                                            padding: 5.pt(),
+                                            text_wrap: true,
+                                            horizontal_text_alignment: HorizontalTextAlignment::Justify,
+                                        },
+                                        include_str!("lorem_ipsum.txt"),
+                                    );
+                                },
+                            );
+                        }
                     );
                 },
             );

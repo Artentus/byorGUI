@@ -1,12 +1,14 @@
+mod forest;
 pub mod input;
 mod layout;
 mod math;
+mod multi_vec;
 pub mod rendering;
 pub mod style;
-mod tree;
 mod widgets;
 
 use cranelift_entity::PrimaryMap;
+use forest::*;
 use input::*;
 use intmap::{IntKey, IntMap};
 pub use math::*;
@@ -16,7 +18,6 @@ use std::any::Any;
 use std::ops::Deref;
 use style::computed::*;
 use style::*;
-use tree::*;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
@@ -219,130 +220,91 @@ struct ByorGuiData {
 
 #[derive(Default)]
 pub struct ByorGui {
-    tree: Tree<Node>,
+    forest: Forest<Node>,
     data: ByorGuiData,
 }
 
-struct ByorGuiSubtreeView<'tree, 'data, M: Mutability> {
-    subtree: TreeRef<'tree, Node, M>,
-    data: M::Ref<'data, ByorGuiData>,
-}
+#[must_use]
+fn compute_previous_state(
+    tree: TreeRef<'_, Node, Shared>,
+    data: &mut ByorGuiData,
+    mouse_in_parent_clip_bounds: bool,
+) -> Option<Uid> {
+    let mut hovered_node = None;
 
-impl<M: Mutability> ByorGuiSubtreeView<'_, '_, M> {
-    #[inline]
-    fn reborrow(&self) -> ByorGuiSubtreeView<'_, '_, Shared> {
-        ByorGuiSubtreeView {
-            subtree: self.subtree.reborrow(),
-            data: &self.data,
+    let TreeRef {
+        parent: node,
+        descendants,
+        ..
+    } = tree;
+
+    let mouse_position = data.input_state.mouse_position();
+    let mouse_in_bounds = mouse_in_parent_clip_bounds
+        && point_in_rect(mouse_position, node.position, node.style.fixed_size);
+
+    let (clip_position, clip_size) = node.clip_bounds();
+    let mouse_in_clip_bounds =
+        mouse_in_bounds && point_in_rect(mouse_position, clip_position, clip_size);
+
+    iter_subtrees!(descendants => |subtree| {
+        if subtree.is_root {
+            continue;
         }
-    }
-}
 
-impl ByorGuiSubtreeView<'_, '_, Exclusive> {
-    #[inline]
-    fn reborrow_mut(&mut self) -> ByorGuiSubtreeView<'_, '_, Exclusive> {
-        ByorGuiSubtreeView {
-            subtree: self.subtree.reborrow_mut(),
-            data: &mut self.data,
+        if let Some(uid) = compute_previous_state(subtree, data, mouse_in_clip_bounds) {
+            assert!(hovered_node.is_none(), "multiple nodes hovered");
+            hovered_node = Some(uid);
         }
-    }
-}
+    });
 
-impl ByorGui {
-    #[inline]
-    fn view(&self) -> Option<ByorGuiSubtreeView<'_, '_, Shared>> {
-        Some(ByorGuiSubtreeView {
-            subtree: self.tree.as_ref()?,
-            data: &self.data,
-        })
-    }
-
-    #[inline]
-    fn view_mut(&mut self) -> Option<ByorGuiSubtreeView<'_, '_, Exclusive>> {
-        Some(ByorGuiSubtreeView {
-            subtree: self.tree.as_mut()?,
-            data: &mut self.data,
-        })
-    }
-}
-
-impl ByorGuiSubtreeView<'_, '_, Exclusive> {
-    #[must_use]
-    fn compute_previous_state(mut self, mouse_in_parent_clip_bounds: bool) -> Option<Uid> {
-        let mut hovered_node = None;
-
-        let TreeRef {
-            parent: node,
-            mut descendants,
-        } = self.subtree;
-
-        let mouse_position = self.data.input_state.mouse_position();
-        let mouse_in_bounds = mouse_in_parent_clip_bounds
-            && point_in_rect(mouse_position, node.position, node.style.fixed_size);
-
-        let (clip_position, clip_size) = node.clip_bounds();
-        let mouse_in_clip_bounds =
-            mouse_in_bounds && point_in_rect(mouse_position, clip_position, clip_size);
-
-        iter_subtrees!(descendants => |mut subtree| {
-            let subtree_view = ByorGuiSubtreeView { subtree, data: &mut self.data };
-
-            if let Some(uid) = subtree_view.compute_previous_state(mouse_in_clip_bounds) {
-                assert!(hovered_node.is_none(), "multiple nodes hovered");
-                hovered_node = Some(uid);
-            }
+    if let Some(uid) = node.uid {
+        let mut child_count = 0u32;
+        let mut total_content_size = Vec2::default();
+        let mut max_content_size = Vec2::default();
+        iter_children!(descendants => |child| {
+            child_count += 1;
+            total_content_size += child.style.fixed_size;
+            max_content_size = max_content_size.max(child.style.fixed_size);
         });
 
-        if let Some(uid) = node.uid {
-            let mut child_count = 0u32;
-            let mut total_content_size = Vec2::default();
-            let mut max_content_size = Vec2::default();
-            iter_children!(descendants => |child| {
-                child_count += 1;
-                total_content_size += child.style.fixed_size;
-                max_content_size = max_content_size.max(child.style.fixed_size);
-            });
+        let total_spacing = (child_count.saturating_sub(1) as f32) * node.style.child_spacing();
 
-            let total_spacing = (child_count.saturating_sub(1) as f32) * node.style.child_spacing();
+        let state = data.previous_state.entry(uid).or_default();
+        state.referenced = true; // this state is indeed still referenced
 
-            let state = self.data.previous_state.entry(uid).or_default();
-            state.referenced = true; // this state is indeed still referenced
-
-            state.hover_state = if let Some(hovered_node_override) = self.data.hovered_node_override
-            {
-                if uid == hovered_node_override {
-                    hovered_node = Some(uid);
-                    HoverState::DirectlyHovered
-                } else {
-                    HoverState::NotHovered
-                }
-            } else if mouse_in_bounds {
-                if hovered_node.is_none() {
-                    hovered_node = Some(uid);
-                    HoverState::DirectlyHovered
-                } else {
-                    HoverState::Hovered
-                }
+        state.hover_state = if let Some(hovered_node_override) = data.hovered_node_override {
+            if uid == hovered_node_override {
+                hovered_node = Some(uid);
+                HoverState::DirectlyHovered
             } else {
                 HoverState::NotHovered
-            };
+            }
+        } else if mouse_in_bounds {
+            if hovered_node.is_none() {
+                hovered_node = Some(uid);
+                HoverState::DirectlyHovered
+            } else {
+                HoverState::Hovered
+            }
+        } else {
+            HoverState::NotHovered
+        };
 
-            state.size = node.style.fixed_size;
-            state.content_size = match node.style.layout_direction() {
-                Direction::LeftToRight => Vec2 {
-                    x: total_content_size.x + total_spacing,
-                    y: max_content_size.y,
-                },
-                Direction::TopToBottom => Vec2 {
-                    x: max_content_size.x,
-                    y: total_content_size.y + total_spacing,
-                },
-            };
-            state.position = node.position;
-        }
-
-        hovered_node
+        state.size = node.style.fixed_size;
+        state.content_size = match node.style.layout_direction() {
+            Direction::LeftToRight => Vec2 {
+                x: total_content_size.x + total_spacing,
+                y: max_content_size.y,
+            },
+            Direction::TopToBottom => Vec2 {
+                x: max_content_size.x,
+                y: total_content_size.y + total_spacing,
+            },
+        };
+        state.position = node.position;
     }
+
+    hovered_node
 }
 
 impl ByorGui {
@@ -368,9 +330,11 @@ impl ByorGui {
             .values_mut()
             .for_each(|state| state.referenced = false);
 
-        let hovered_node = self
-            .view_mut()
-            .and_then(|view| view.compute_previous_state(true));
+        let mut hovered_node = None;
+        let mut trees = self.forest.trees();
+        while let Some(tree) = trees.next() {
+            hovered_node = compute_previous_state(tree, &mut self.data, true);
+        }
 
         self.data.previous_state.retain(|_, state| state.referenced);
 
@@ -394,10 +358,10 @@ impl ByorGui {
 
         let cascaded_style = self.root_style().cascade_root(screen_size);
         let computed_style = compute_style(self.root_style(), &cascaded_style, None, scale_factor);
-        let root_builder = self.tree.insert_root(Node::new(None, computed_style));
+        let primary_builder = self.forest.insert_primary(Node::new(None, computed_style));
 
         ByorGuiContext {
-            builder: root_builder,
+            builder: primary_builder,
             data: &mut self.data,
             parent_style: cascaded_style,
         }
@@ -426,7 +390,7 @@ impl ByorGui {
 }
 
 pub struct ByorGuiContext<'gui> {
-    builder: TreeBuilder<'gui, Node>,
+    builder: ForestBuilder<'gui, Node>,
     data: &'gui mut ByorGuiData,
     parent_style: CascadedStyle,
 }
@@ -622,7 +586,7 @@ impl ByorGuiContext<'_> {
             self.data.scale_factor,
         );
 
-        let builder = self.builder.insert(Node::new(uid, computed_style));
+        let builder = self.builder.insert(Node::new(uid, computed_style), false);
 
         ByorGuiContext {
             builder,

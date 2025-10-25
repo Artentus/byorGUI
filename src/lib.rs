@@ -178,7 +178,7 @@ pub enum PersistentStateKey {
     HorizontalScroll,
     VerticalScroll,
     ScrollBarThumbMouseOffset,
-    FloatPosition,
+    PreviousPopupState,
 
     Custom(&'static str),
 }
@@ -212,6 +212,7 @@ struct ByorGuiData {
     text_layouts: PrimaryMap<TextLayoutId, TextLayout<Color>>,
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
+    float_positions: IntMap<Uid, PersistentFloatPosition>,
 
     root_style: Style,
     scale_factor: f32,
@@ -334,6 +335,7 @@ impl ByorGui {
         let mut hovered_node = None;
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
+            // FIXME: floating nodes should stop nodes underneath from being hovered
             if let Some(uid) = compute_previous_state(tree, &mut self.data, true) {
                 hovered_node = Some(uid);
             }
@@ -355,6 +357,10 @@ impl ByorGui {
         mouse_state: MouseState,
     ) -> ByorGuiContext<'gui> {
         self.data.text_layouts.clear();
+        self.data
+            .float_positions
+            .values_mut()
+            .for_each(PersistentFloatPosition::reset_referenced);
 
         self.data.scale_factor = scale_factor;
         self.data.input_state.update(mouse_state);
@@ -367,11 +373,13 @@ impl ByorGui {
             builder: primary_builder,
             data: &mut self.data,
             parent_style: cascaded_style,
+            parent_input_state: NodeInputState::default(),
         }
     }
 
     #[inline(never)]
     fn end_frame(&mut self) {
+        self.data.float_positions.retain(|_, pos| pos.referenced());
         self.layout();
         self.update_previous_states();
     }
@@ -392,10 +400,49 @@ impl ByorGui {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NodeInputState {
+    pub hover_state: HoverState,
+    pub pressed_buttons: MouseButtons,
+    pub clicked_buttons: MouseButtons,
+    pub released_buttons: MouseButtons,
+}
+
+impl NodeInputState {
+    #[inline]
+    pub fn is_hovered(&self) -> bool {
+        matches!(
+            self.hover_state,
+            HoverState::Hovered | HoverState::DirectlyHovered,
+        )
+    }
+
+    #[inline]
+    pub fn is_directly_hovered(&self) -> bool {
+        matches!(self.hover_state, HoverState::DirectlyHovered)
+    }
+
+    #[inline]
+    pub fn pressed(&self, buttons: MouseButtons) -> bool {
+        self.pressed_buttons.contains(buttons)
+    }
+
+    #[inline]
+    pub fn clicked(&self, buttons: MouseButtons) -> bool {
+        self.clicked_buttons.contains(buttons)
+    }
+
+    #[inline]
+    pub fn released(&self, buttons: MouseButtons) -> bool {
+        self.released_buttons.contains(buttons)
+    }
+}
+
 pub struct ByorGuiContext<'gui> {
     builder: ForestBuilder<'gui, Node>,
     data: &'gui mut ByorGuiData,
     parent_style: CascadedStyle,
+    parent_input_state: NodeInputState,
 }
 
 impl ByorGuiContext<'_> {
@@ -419,8 +466,14 @@ impl ByorGuiContext<'_> {
 
     #[must_use]
     #[inline]
-    pub fn input_state(&self) -> &InputState {
+    pub fn global_input_state(&self) -> &InputState {
         &self.data.input_state
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn parent_input_state(&self) -> NodeInputState {
+        self.parent_input_state
     }
 
     #[must_use]
@@ -470,10 +523,7 @@ impl ByorGuiContext<'_> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeResponse<T> {
-    pub hover_state: HoverState,
-    pub pressed_buttons: MouseButtons,
-    pub clicked_buttons: MouseButtons,
-    pub released_buttons: MouseButtons,
+    pub input_state: NodeInputState,
     pub result: T,
 }
 
@@ -481,47 +531,40 @@ impl<T> NodeResponse<T> {
     #[inline]
     pub fn map_result<U>(self, f: impl FnOnce(T) -> U) -> NodeResponse<U> {
         NodeResponse {
-            hover_state: self.hover_state,
-            pressed_buttons: self.pressed_buttons,
-            clicked_buttons: self.clicked_buttons,
-            released_buttons: self.released_buttons,
+            input_state: self.input_state,
             result: f(self.result),
         }
     }
 
     #[inline]
     pub fn is_hovered(&self) -> bool {
-        matches!(
-            self.hover_state,
-            HoverState::Hovered | HoverState::DirectlyHovered,
-        )
+        self.input_state.is_hovered()
     }
 
     #[inline]
     pub fn is_directly_hovered(&self) -> bool {
-        matches!(self.hover_state, HoverState::DirectlyHovered)
+        self.input_state.is_directly_hovered()
     }
 
     #[inline]
     pub fn pressed(&self, buttons: MouseButtons) -> bool {
-        self.pressed_buttons.contains(buttons)
+        self.input_state.pressed(buttons)
     }
 
     #[inline]
     pub fn clicked(&self, buttons: MouseButtons) -> bool {
-        self.clicked_buttons.contains(buttons)
+        self.input_state.clicked(buttons)
     }
 
     #[inline]
     pub fn released(&self, buttons: MouseButtons) -> bool {
-        self.released_buttons.contains(buttons)
+        self.input_state.released(buttons)
     }
 }
 
 impl ByorGuiContext<'_> {
     #[must_use]
-    #[inline(never)]
-    fn compute_node_response(&self, uid: Option<Uid>) -> NodeResponse<()> {
+    fn compute_node_input_state(&self, uid: Option<Uid>) -> NodeInputState {
         let hover_state = uid
             .and_then(|uid| self.data.previous_state.get(uid))
             .map(|previous_state| previous_state.hover_state)
@@ -542,12 +585,11 @@ impl ByorGuiContext<'_> {
                 )
             };
 
-        NodeResponse {
+        NodeInputState {
             hover_state,
             pressed_buttons,
             clicked_buttons,
             released_buttons,
-            result: (),
         }
     }
 
@@ -589,6 +631,7 @@ impl ByorGuiContext<'_> {
             Some(&self.builder.parent_node().style),
             self.data.scale_factor,
         );
+        let input_state = self.compute_node_input_state(uid);
 
         let builder = self.builder.insert(Node::new(uid, computed_style), is_root);
 
@@ -596,13 +639,19 @@ impl ByorGuiContext<'_> {
             builder,
             data: self.data,
             parent_style: cascaded_style,
+            parent_input_state: input_state,
         }
     }
 
     #[inline]
     pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let _ = self.insert_leaf_node(uid, style, false);
-        self.compute_node_response(uid)
+        let context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
+
+        NodeResponse {
+            input_state,
+            result: (),
+        }
     }
 
     #[inline]
@@ -613,8 +662,13 @@ impl ByorGuiContext<'_> {
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
         let context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
         let result = contents(context);
-        self.compute_node_response(uid).map_result(|_| result)
+
+        NodeResponse {
+            input_state,
+            result,
+        }
     }
 
     #[inline]
@@ -625,59 +679,69 @@ impl ByorGuiContext<'_> {
         text: &str,
     ) -> NodeResponse<()> {
         let mut context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
         context.layout_text(text);
-        drop(context);
-        self.compute_node_response(uid)
+
+        NodeResponse {
+            input_state,
+            result: (),
+        }
     }
 
     #[inline(never)]
     fn update_float_position(&mut self, uid: Uid, position: FloatPosition) {
-        let persistent_state = self.data.persistent_state.entry(uid).or_default();
-
         match position {
             FloatPosition::Cursor => {
                 let cursor_position = self.data.input_state.mouse_position();
 
-                persistent_state.insert(
-                    PersistentStateKey::FloatPosition,
-                    smallbox!(PersistentFloatPosition::Cursor {
+                self.data.float_positions.insert(
+                    uid,
+                    PersistentFloatPosition::Cursor {
+                        referenced: true,
                         x: cursor_position.x,
                         y: cursor_position.y,
-                    }),
+                    },
                 );
             }
             FloatPosition::CursorFixed => {
-                if let Some(value) = persistent_state.get(&PersistentStateKey::FloatPosition)
-                    && let Some(PersistentFloatPosition::CursorFixed { .. }) =
-                        value.downcast_ref::<PersistentFloatPosition>()
+                let persistent_position = self.data.float_positions.entry(uid).or_default();
+
+                if let PersistentFloatPosition::CursorFixed { referenced, .. } = persistent_position
                 {
+                    *referenced = true;
                 } else {
                     let cursor_position = self.data.input_state.mouse_position();
 
-                    persistent_state.insert(
-                        PersistentStateKey::FloatPosition,
-                        smallbox!(PersistentFloatPosition::CursorFixed {
+                    self.data.float_positions.insert(
+                        uid,
+                        PersistentFloatPosition::CursorFixed {
+                            referenced: true,
                             x: cursor_position.x,
                             y: cursor_position.y,
-                        }),
+                        },
                     );
                 }
             }
             FloatPosition::Fixed { x, y } => {
                 let parent_font_size = self.builder.parent_node().style.font_size().value();
 
-                persistent_state.insert(
-                    PersistentStateKey::FloatPosition,
-                    smallbox!(PersistentFloatPosition::Fixed {
+                self.data.float_positions.insert(
+                    uid,
+                    PersistentFloatPosition::Fixed {
+                        referenced: true,
                         x: x.to_pixel(self.data.scale_factor, parent_font_size),
                         y: y.to_pixel(self.data.scale_factor, parent_font_size),
-                    }),
+                    },
                 );
             }
             FloatPosition::Popup { x, y } => {
-                persistent_state.insert(
-                    PersistentStateKey::FloatPosition,
-                    smallbox!(PersistentFloatPosition::Popup { x, y }),
+                self.data.float_positions.insert(
+                    uid,
+                    PersistentFloatPosition::Popup {
+                        referenced: true,
+                        x,
+                        y,
+                    },
                 );
             }
         }
@@ -692,8 +756,13 @@ impl ByorGuiContext<'_> {
     ) -> NodeResponse<R> {
         self.update_float_position(uid, position);
         let context = self.insert_leaf_node(Some(uid), style, true);
+        let input_state = context.parent_input_state;
         let result = contents(context);
-        self.compute_node_response(Some(uid)).map_result(|_| result)
+
+        NodeResponse {
+            input_state,
+            result,
+        }
     }
 }
 

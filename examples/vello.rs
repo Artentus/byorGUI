@@ -26,6 +26,11 @@ struct RenderState {
     surface_valid: bool,
 }
 
+#[derive(Default)]
+struct ExampleAppState {
+    show_popup: bool,
+}
+
 struct ExampleApp {
     context: RenderContext,
     window: Option<Arc<Window>>,
@@ -34,6 +39,7 @@ struct ExampleApp {
     gui: ByorGui,
     mouse_state: MouseState,
     modifiers: Modifiers,
+    app_state: ExampleAppState,
 }
 
 impl ExampleApp {
@@ -53,6 +59,7 @@ impl ExampleApp {
             gui,
             mouse_state: MouseState::default(),
             modifiers: Modifiers::default(),
+            app_state: ExampleAppState::default(),
         }
     }
 }
@@ -231,7 +238,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                         },
                         window.scale_factor() as f32,
                         self.mouse_state,
-                        gui,
+                        |gui| build_gui(&mut self.app_state, gui),
                     );
                     self.mouse_state.scroll_delta = Vec2::ZERO;
 
@@ -287,7 +294,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
     }
 }
 
-fn gui(mut gui: ByorGuiContext<'_>) {
+fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
     gui.vertical_scroll_view(
         const { Uid::new(b"vertical_scroll_view") },
         &style! {
@@ -380,19 +387,21 @@ fn gui(mut gui: ByorGuiContext<'_>) {
                     );
 
                     gui.insert_container_node(
-                        None,
+                        const { Some(Uid::new(b"popup_parent")) },
                         &style! {
                             width: 100.pt(),
                             height: 100.pt(),
                             cross_axis_alignment: Alignment::Center,
                         },
                         |mut gui| {
-                            gui.insert_floating_node(
-                                Uid::new(b"popup"),
-                                FloatPosition::Popup {
-                                    x: PopupPosition::ParentStart,
-                                    y: PopupPosition::AfterParent,
-                                },
+                            if gui.parent_input_state().clicked(MouseButtons::SECONDARY) {
+                                app_state.show_popup = true;
+                            }
+
+                            gui.popup(
+                                &mut app_state.show_popup,
+                                FloatPosition::CursorFixed,
+                                const { Uid::new(b"popup") },
                                 &style! {
                                     padding: 5.pt(),
                                 },

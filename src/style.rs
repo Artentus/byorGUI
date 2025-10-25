@@ -308,10 +308,59 @@ pub enum FloatPosition {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PersistentFloatPosition {
-    Cursor { x: Float<Pixel>, y: Float<Pixel> },
-    CursorFixed { x: Float<Pixel>, y: Float<Pixel> },
-    Fixed { x: Float<Pixel>, y: Float<Pixel> },
-    Popup { x: PopupPosition, y: PopupPosition },
+    Cursor {
+        referenced: bool,
+        x: Float<Pixel>,
+        y: Float<Pixel>,
+    },
+    CursorFixed {
+        referenced: bool,
+        x: Float<Pixel>,
+        y: Float<Pixel>,
+    },
+    Fixed {
+        referenced: bool,
+        x: Float<Pixel>,
+        y: Float<Pixel>,
+    },
+    Popup {
+        referenced: bool,
+        x: PopupPosition,
+        y: PopupPosition,
+    },
+}
+
+impl PersistentFloatPosition {
+    #[inline]
+    pub(crate) const fn referenced(&self) -> bool {
+        match self {
+            &Self::Cursor { referenced, .. }
+            | &Self::CursorFixed { referenced, .. }
+            | &Self::Fixed { referenced, .. }
+            | &Self::Popup { referenced, .. } => referenced,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn reset_referenced(&mut self) {
+        match self {
+            Self::Cursor { referenced, .. }
+            | Self::CursorFixed { referenced, .. }
+            | Self::Fixed { referenced, .. }
+            | Self::Popup { referenced, .. } => *referenced = false,
+        }
+    }
+}
+
+impl Default for PersistentFloatPosition {
+    #[inline]
+    fn default() -> Self {
+        Self::Fixed {
+            referenced: true,
+            x: 0.px(),
+            y: 0.px(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

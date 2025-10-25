@@ -89,7 +89,7 @@ impl ByorGuiContext<'_> {
                 gui.insert_persistent_state(
                     uid,
                     PersistentStateKey::ScrollBarThumbMouseOffset,
-                    gui.input_state().mouse_position().along_axis(axis) - thumb_pos,
+                    gui.global_input_state().mouse_position().along_axis(axis) - thumb_pos,
                 );
             } else if response.pressed(MouseButtons::PRIMARY) {
                 let (scroll_bar_pos, scroll_bar_size) = gui
@@ -125,7 +125,7 @@ impl ByorGuiContext<'_> {
                     - padding[1]
                     - spacing * 4.0;
 
-                let scroll_position = gui.input_state().mouse_position().along_axis(axis)
+                let scroll_position = gui.global_input_state().mouse_position().along_axis(axis)
                     - scroll_bar_pos
                     - left_button_size
                     - thumb_mouse_offset
@@ -218,7 +218,7 @@ impl ByorGuiContext<'_> {
             if max_scroll > 0.px() {
                 if response.is_hovered() {
                     // scroll is subtractive in layouting, so we need to subtract here as well
-                    scroll -= gui.input_state().scroll_delta().along_axis(axis);
+                    scroll -= gui.global_input_state().scroll_delta().along_axis(axis);
                 }
 
                 // scroll bar
@@ -262,5 +262,39 @@ impl ByorGuiContext<'_> {
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> R {
         self.scroll_view(Axis::Y, uid, style, contents)
+    }
+
+    pub fn popup<R>(
+        &mut self,
+        open: &mut bool,
+        position: FloatPosition,
+        uid: Uid,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> Option<R> {
+        let result = if *open {
+            let response = self.insert_floating_node(uid, position, style, contents);
+
+            //  if this is the first frame the popup opened, do not immediately close it
+            let previous_open = self
+                .get_persistent_state::<bool>(uid, PersistentStateKey::PreviousPopupState)
+                .copied()
+                .unwrap_or(false);
+
+            if previous_open
+                && !self.global_input_state().clicked_buttons().is_empty()
+                && !response.is_hovered()
+            {
+                *open = false;
+            }
+
+            Some(response.result)
+        } else {
+            None
+        };
+
+        self.insert_persistent_state(uid, PersistentStateKey::PreviousPopupState, *open);
+
+        result
     }
 }

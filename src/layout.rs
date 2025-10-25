@@ -331,19 +331,16 @@ fn position_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData)
 
         if is_root {
             node.position = if let Some(uid) = node.uid
-                && let Some(&float_pos) = data
-                    .persistent_state
-                    .get(uid)
-                    .and_then(|state| state.get(&PersistentStateKey::FloatPosition))
-                    .and_then(|value| value.downcast_ref::<PersistentFloatPosition>())
+                && let Some(&float_pos) = data.float_positions.get(uid)
             {
+                // FIXME: if the position has the node end up outside the window bounds, fall back to a different position
                 match float_pos {
-                    PersistentFloatPosition::Cursor { x, y }
-                    | PersistentFloatPosition::CursorFixed { x, y }
-                    | PersistentFloatPosition::Fixed { x, y } => {
+                    PersistentFloatPosition::Cursor { x, y, .. }
+                    | PersistentFloatPosition::CursorFixed { x, y, .. }
+                    | PersistentFloatPosition::Fixed { x, y, .. } => {
                         Vec2 { x, y }
                     }
-                    PersistentFloatPosition::Popup { x, y } => {
+                    PersistentFloatPosition::Popup { x, y, .. } => {
                         Vec2 {
                             x: match x {
                                 PopupPosition::BeforeParent => parent.position.x - node.style.fixed_size.x,

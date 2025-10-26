@@ -5,7 +5,7 @@ mod math;
 mod multi_vec;
 pub mod rendering;
 pub mod style;
-mod widgets;
+pub mod widgets;
 
 use cranelift_entity::PrimaryMap;
 use forest::*;
@@ -15,6 +15,7 @@ pub use math::*;
 use parley::layout::Layout as TextLayout;
 use smallbox::smallbox;
 use std::any::Any;
+use std::hash::Hasher;
 use std::ops::Deref;
 use style::computed::*;
 use style::*;
@@ -74,21 +75,62 @@ fn point_in_rect<U: Unit>(point: Vec2<U>, position: Vec2<U>, size: Vec2<U>) -> b
 #[repr(transparent)]
 pub struct Uid(u64);
 
+#[must_use]
+#[inline]
+const fn uid_hash(seed: u64, data: &[u8]) -> u64 {
+    let secrets = rapidhash::v3::RapidSecrets::seed_cpp(seed);
+    rapidhash::v3::rapidhash_v3_inline::<true, false, false>(data, &secrets)
+}
+
+#[derive(Default)]
+#[repr(transparent)]
+struct UidHasher {
+    seed: u64,
+}
+
+impl std::hash::Hasher for UidHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.seed
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.seed = uid_hash(self.seed, bytes);
+    }
+
+    // This is the same implementation as in the standard library.
+    // We override it anyway to ensure this always stays identical to the functions below.
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.write(&i.to_ne_bytes())
+    }
+}
+
 impl Uid {
     #[must_use]
-    #[inline(never)]
-    pub const fn new(value: &[u8]) -> Self {
-        Self(rapidhash::v3::rapidhash_v3_inline::<true, false, false>(
-            value,
-            &rapidhash::v3::DEFAULT_RAPID_SECRETS,
-        ))
+    pub const fn from_array<const N: usize>(data: &[u8; N]) -> Self {
+        let seed = uid_hash(0, &N.to_ne_bytes());
+        Self(uid_hash(seed, data))
     }
 
     #[must_use]
-    #[inline(never)]
+    pub const fn from_slice(data: &[u8]) -> Self {
+        let seed = uid_hash(0, &data.len().to_ne_bytes());
+        Self(uid_hash(seed, data))
+    }
+
+    #[must_use]
+    pub fn new(data: impl std::hash::Hash) -> Self {
+        let mut hasher = UidHasher::default();
+        data.hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    #[must_use]
     pub const fn concat(self, other: Self) -> Self {
-        let low_bytes = self.0.to_le_bytes();
-        let high_bytes = other.0.to_le_bytes();
+        let low_bytes = self.0.to_ne_bytes();
+        let high_bytes = other.0.to_ne_bytes();
         let bytes = [
             low_bytes[0],
             low_bytes[1],
@@ -108,10 +150,7 @@ impl Uid {
             high_bytes[7],
         ];
 
-        Self(rapidhash::v3::rapidhash_v3_inline::<true, false, false>(
-            &bytes,
-            &rapidhash::v3::DEFAULT_RAPID_SECRETS,
-        ))
+        Self(uid_hash(0, &bytes))
     }
 }
 

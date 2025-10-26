@@ -298,12 +298,19 @@ pub enum PopupPosition {
     AfterParent,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum FloatPosition {
+    #[default]
     Cursor,
     CursorFixed,
-    Fixed { x: Measurement, y: Measurement },
-    Popup { x: PopupPosition, y: PopupPosition },
+    Fixed {
+        x: Measurement,
+        y: Measurement,
+    },
+    Popup {
+        x: PopupPosition,
+        y: PopupPosition,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

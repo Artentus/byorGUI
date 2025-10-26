@@ -296,7 +296,6 @@ impl winit::application::ApplicationHandler for ExampleApp {
 
 fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
     gui.vertical_scroll_view(
-        const { Uid::new(b"vertical_scroll_view") },
         &style! {
             height: Sizing::Grow,
             max_height: 600.pt(),
@@ -320,7 +319,6 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
     );
 
     gui.horizontal_scroll_view(
-        const { Uid::new(b"horizontal_scroll_view") },
         &style! {
             width: Sizing::Grow,
             max_width: 600.pt(),
@@ -387,7 +385,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                     );
 
                     gui.insert_container_node(
-                        const { Some(Uid::new(b"popup_parent")) },
+                        const { Some(Uid::from_slice(b"popup_parent")) },
                         &style! {
                             width: 100.pt(),
                             height: 100.pt(),
@@ -401,7 +399,6 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                             gui.popup(
                                 &mut app_state.show_popup,
                                 FloatPosition::CursorFixed,
-                                const { Uid::new(b"popup") },
                                 &style! {
                                     padding: 5.pt(),
                                 },

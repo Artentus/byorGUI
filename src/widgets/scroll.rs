@@ -148,7 +148,7 @@ impl ScrollBar<'_> {
 
         gui.insert_container_node(Some(self.uid), &style, |mut gui| {
             if gui
-                .button("<", dec_button_uid, &button_style)
+                .insert_text_node(Some(dec_button_uid), &button_style, "<")
                 .clicked(MouseButtons::PRIMARY)
             {
                 value -= self.step();
@@ -226,7 +226,7 @@ impl ScrollBar<'_> {
             gui.insert_node(None, &trailing_space_style);
 
             if gui
-                .button(">", inc_button_uid, &button_style)
+                .insert_text_node(Some(inc_button_uid), &button_style, ">")
                 .clicked(MouseButtons::PRIMARY)
             {
                 value += self.step();

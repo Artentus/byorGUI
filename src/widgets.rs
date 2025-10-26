@@ -1,3 +1,4 @@
+pub mod button;
 pub mod popup;
 pub mod scroll;
 
@@ -15,9 +16,13 @@ pub trait Widget: Sized {
 }
 
 impl ByorGuiContext<'_> {
-    #[track_caller]
-    pub fn button(&mut self, text: &str, uid: Uid, style: &Style) -> NodeResponse<()> {
-        self.insert_text_node(Some(uid), style, text)
+    #[inline]
+    pub fn button(&mut self, text: &str, style: &Style) -> bool {
+        button::Button::new()
+            .with_text(text)
+            .with_text_as_uid()
+            .with_style(style)
+            .show(self)
     }
 
     #[track_caller]

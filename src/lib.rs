@@ -152,6 +152,13 @@ impl Uid {
 
         Self(uid_hash(0, &bytes))
     }
+
+    #[must_use]
+    #[track_caller]
+    fn from_caller_location() -> Self {
+        let location = std::panic::Location::caller();
+        Self::new(location)
+    }
 }
 
 impl IntKey for Uid {
@@ -257,6 +264,8 @@ struct ByorGuiData {
     scale_factor: f32,
     input_state: InputState,
     hovered_node_override: Option<Uid>,
+
+    uid_stack: Vec<Uid>,
 }
 
 #[derive(Default)]
@@ -486,7 +495,7 @@ pub struct ByorGuiContext<'gui> {
 
 impl ByorGuiContext<'_> {
     #[must_use]
-    #[inline(never)]
+    #[inline]
     pub fn scale_factor(&self) -> f32 {
         self.data.scale_factor
     }
@@ -517,45 +526,55 @@ impl ByorGuiContext<'_> {
 
     #[must_use]
     #[inline]
+    fn compute_recursive_uid(&self, uid: Uid) -> Uid {
+        if let Some(&parent_uid) = self.data.uid_stack.last() {
+            parent_uid.concat(uid)
+        } else {
+            uid
+        }
+    }
+
+    #[must_use]
     pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
+        let uid = self.compute_recursive_uid(uid);
         let state = self.data.persistent_state.get(uid)?;
         let any = state.get(&key)?;
         any.downcast_ref()
     }
 
     #[must_use]
-    #[inline]
     pub fn get_persistent_state_mut<T: Any>(
         &mut self,
         uid: Uid,
         key: PersistentStateKey,
     ) -> Option<&mut T> {
+        let uid = self.compute_recursive_uid(uid);
         let state = self.data.persistent_state.get_mut(uid)?;
         let any = state.get_mut(&key)?;
         any.downcast_mut()
     }
 
-    #[inline]
     pub fn get_or_insert_persistent_state<T: Any>(
         &mut self,
         uid: Uid,
         key: PersistentStateKey,
         default: impl FnOnce() -> T,
     ) -> Option<&mut T> {
+        let uid = self.compute_recursive_uid(uid);
         let state = self.data.persistent_state.entry(uid).or_default();
         let any = state.entry(key).or_insert_with(|| smallbox!(default()));
         any.downcast_mut()
     }
 
-    #[inline]
     pub fn insert_persistent_state<T: Any>(&mut self, uid: Uid, key: PersistentStateKey, value: T) {
+        let uid = self.compute_recursive_uid(uid);
         let state = self.data.persistent_state.entry(uid).or_default();
         state.insert(key, smallbox!(value));
     }
 
     #[must_use]
-    #[inline]
     pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+        let uid = self.compute_recursive_uid(uid);
         self.data.previous_state.get(uid)
     }
 }
@@ -603,6 +622,7 @@ impl<T> NodeResponse<T> {
 
 impl ByorGuiContext<'_> {
     #[must_use]
+    #[inline]
     fn compute_node_input_state(&self, uid: Option<Uid>) -> NodeInputState {
         let hover_state = uid
             .and_then(|uid| self.data.previous_state.get(uid))
@@ -632,29 +652,6 @@ impl ByorGuiContext<'_> {
         }
     }
 
-    fn layout_text(&mut self, text: &str) {
-        use parley::style::{LineHeight, OverflowWrap, StyleProperty};
-
-        global_cache::with_parley_global_data(|parley_global_data| {
-            let mut builder = parley_global_data.builder(text, 1.0);
-
-            let style = &self.builder.parent_node().style;
-            builder.push_default(StyleProperty::Brush(style.text_color()));
-            builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
-            builder.push_default(StyleProperty::FontSize(style.font_size().value()));
-            builder.push_default(StyleProperty::FontStyle(style.font_style()));
-            builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
-            builder.push_default(StyleProperty::FontWeight(style.font_weight()));
-            builder.push_default(StyleProperty::FontWidth(style.font_width()));
-            builder.push_default(StyleProperty::Underline(style.text_underline()));
-            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
-            builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
-
-            let text_layout = self.data.text_layouts.push(builder.build(text));
-            self.builder.parent_node_mut().text_layout = Some(text_layout);
-        });
-    }
-
     #[must_use]
     #[inline(never)]
     fn insert_leaf_node<'gui>(
@@ -682,49 +679,28 @@ impl ByorGuiContext<'_> {
         }
     }
 
-    #[inline]
-    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
-        let context = self.insert_leaf_node(uid, style, false);
-        let input_state = context.parent_input_state;
+    #[inline(never)]
+    fn layout_text(&mut self, text: &str) {
+        use parley::style::{LineHeight, OverflowWrap, StyleProperty};
 
-        NodeResponse {
-            input_state,
-            result: (),
-        }
-    }
+        global_cache::with_parley_global_data(|parley_global_data| {
+            let mut builder = parley_global_data.builder(text, 1.0);
 
-    #[inline]
-    pub fn insert_container_node<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> NodeResponse<R> {
-        let context = self.insert_leaf_node(uid, style, false);
-        let input_state = context.parent_input_state;
-        let result = contents(context);
+            let style = &self.builder.parent_node().style;
+            builder.push_default(StyleProperty::Brush(style.text_color()));
+            builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
+            builder.push_default(StyleProperty::FontSize(style.font_size().value()));
+            builder.push_default(StyleProperty::FontStyle(style.font_style()));
+            builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
+            builder.push_default(StyleProperty::FontWeight(style.font_weight()));
+            builder.push_default(StyleProperty::FontWidth(style.font_width()));
+            builder.push_default(StyleProperty::Underline(style.text_underline()));
+            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
+            builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
 
-        NodeResponse {
-            input_state,
-            result,
-        }
-    }
-
-    #[inline]
-    pub fn insert_text_node(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        text: &str,
-    ) -> NodeResponse<()> {
-        let mut context = self.insert_leaf_node(uid, style, false);
-        let input_state = context.parent_input_state;
-        context.layout_text(text);
-
-        NodeResponse {
-            input_state,
-            result: (),
-        }
+            let text_layout = self.data.text_layouts.push(builder.build(text));
+            self.builder.parent_node_mut().text_layout = Some(text_layout);
+        });
     }
 
     #[inline(never)]
@@ -786,6 +762,63 @@ impl ByorGuiContext<'_> {
         }
     }
 
+    pub fn uid_scope<R>(
+        &mut self,
+        uid: Uid,
+        contents: impl FnOnce(&mut ByorGuiContext<'_>) -> R,
+    ) -> R {
+        let uid = self.compute_recursive_uid(uid);
+        self.data.uid_stack.push(uid);
+        let result = contents(self);
+        self.data.uid_stack.pop();
+        result
+    }
+
+    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+        let uid = uid.map(|uid| self.compute_recursive_uid(uid));
+        let context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
+
+        NodeResponse {
+            input_state,
+            result: (),
+        }
+    }
+
+    pub fn insert_container_node<R>(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> NodeResponse<R> {
+        let uid = uid.map(|uid| self.compute_recursive_uid(uid));
+        let context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
+        let result = contents(context);
+
+        NodeResponse {
+            input_state,
+            result,
+        }
+    }
+
+    pub fn insert_text_node(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        text: &str,
+    ) -> NodeResponse<()> {
+        let uid = uid.map(|uid| self.compute_recursive_uid(uid));
+        let mut context = self.insert_leaf_node(uid, style, false);
+        let input_state = context.parent_input_state;
+        context.layout_text(text);
+
+        NodeResponse {
+            input_state,
+            result: (),
+        }
+    }
+
     pub fn insert_floating_node<R>(
         &mut self,
         uid: Uid,
@@ -793,6 +826,7 @@ impl ByorGuiContext<'_> {
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> NodeResponse<R> {
+        let uid = self.compute_recursive_uid(uid);
         self.update_float_position(uid, position);
         let context = self.insert_leaf_node(Some(uid), style, true);
         let input_state = context.parent_input_state;

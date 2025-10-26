@@ -4,19 +4,13 @@ pub mod scroll;
 use crate::style::axis::*;
 use crate::*;
 
-#[track_caller]
-pub fn generate_uid() -> Uid {
-    let location = std::panic::Location::caller();
-    Uid::new(location)
-}
-
 pub trait Widget: Sized {
     fn with_uid(uid: Uid) -> Self;
 
     #[track_caller]
     #[inline]
     fn new() -> Self {
-        Self::with_uid(generate_uid())
+        Self::with_uid(Uid::from_caller_location())
     }
 }
 

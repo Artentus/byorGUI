@@ -1,5 +1,6 @@
 pub mod button;
 pub mod label;
+pub mod panel;
 pub mod popup;
 pub mod scroll;
 
@@ -36,6 +37,18 @@ impl ByorGuiContext<'_> {
             .with_text_as_uid()
             .with_style(style)
             .show(self)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub fn flex_panel<R>(
+        &mut self,
+        style: &Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> WidgetResult<R> {
+        panel::FlexPanel::new()
+            .with_style(style)
+            .show(self, contents)
     }
 
     #[track_caller]

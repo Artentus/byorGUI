@@ -354,8 +354,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
         },
     )??;
 
-    gui.insert_container_node(
-        None,
+    gui.flex_panel(
         &style! {
             width: Sizing::Grow,
             height: Sizing::Grow,
@@ -372,8 +371,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                 },
             )?;
 
-            gui.insert_container_node(
-                None,
+            gui.flex_panel(
                 &style! {
                     width: Sizing::Grow,
                     height: Sizing::Grow,
@@ -433,11 +431,11 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
 
                     Ok(())
                 },
-            )?.result?;
+            )??;
 
             Ok(())
         },
-    )?.result?;
+    )??;
 
     Ok(())
 }

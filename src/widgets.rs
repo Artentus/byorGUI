@@ -1,4 +1,5 @@
 pub mod button;
+pub mod label;
 pub mod popup;
 pub mod scroll;
 
@@ -18,6 +19,15 @@ pub trait Widget: Sized {
 pub type WidgetResult<T> = Result<T, DuplicateUidError>;
 
 impl ByorGuiContext<'_> {
+    #[track_caller]
+    #[inline]
+    pub fn label(&mut self, text: &str, style: &Style) -> WidgetResult<()> {
+        label::Label::new()
+            .with_text(text)
+            .with_style(style)
+            .show(self)
+    }
+
     #[track_caller]
     #[inline]
     pub fn button(&mut self, text: &str, style: &Style) -> WidgetResult<bool> {

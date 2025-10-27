@@ -383,8 +383,8 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     child_spacing: 5.pt(),
                 },
                 |mut gui| {
-                    gui.insert_text_node(
-                        None,
+                    gui.label(
+                        "Lorem ipsum dolor sit amet",
                         &style! {
                             width: Sizing::Grow,
                             height: 100.pt(),
@@ -393,7 +393,6 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                             horizontal_text_alignment: HorizontalTextAlignment::Center,
                             vertical_text_alignment: VerticalTextAlignment::Center,
                         },
-                        "Lorem ipsum dolor sit amet",
                     )?;
 
                     gui.insert_container_node(
@@ -415,15 +414,13 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                                     padding: 5.pt(),
                                 },
                                 |mut gui| {
-                                    gui.insert_text_node(
-                                        None,
+                                    gui.label(
+                                        include_str!("lorem_ipsum.txt"),
                                         &style! {
                                             max_width: 300.px(),
                                             padding: 5.pt(),
-                                            text_wrap: true,
                                             horizontal_text_alignment: HorizontalTextAlignment::Justify,
                                         },
-                                        include_str!("lorem_ipsum.txt"),
                                     )?;
 
                                     Ok(())

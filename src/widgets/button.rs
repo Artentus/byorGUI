@@ -1,4 +1,4 @@
-use super::Widget;
+use super::{Widget, WidgetResult};
 use crate::*;
 
 pub struct Button<'text, 'style> {
@@ -58,8 +58,10 @@ impl Button<'_, '_> {
 }
 
 impl Button<'_, '_> {
-    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> bool {
-        gui.insert_text_node(Some(self.uid), self.style, self.text)
-            .clicked(MouseButtons::PRIMARY)
+    #[track_caller]
+    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> WidgetResult<bool> {
+        Ok(gui
+            .insert_text_node(Some(self.uid), self.style, self.text)?
+            .clicked(MouseButtons::PRIMARY))
     }
 }

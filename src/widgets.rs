@@ -15,9 +15,12 @@ pub trait Widget: Sized {
     }
 }
 
+pub type WidgetResult<T> = Result<T, DuplicateUidError>;
+
 impl ByorGuiContext<'_> {
+    #[track_caller]
     #[inline]
-    pub fn button(&mut self, text: &str, style: &Style) -> bool {
+    pub fn button(&mut self, text: &str, style: &Style) -> WidgetResult<bool> {
         button::Button::new()
             .with_text(text)
             .with_text_as_uid()
@@ -34,7 +37,7 @@ impl ByorGuiContext<'_> {
         max: f32,
         step: f32,
         style: &Style,
-    ) -> f32 {
+    ) -> WidgetResult<f32> {
         scroll::ScrollBar::new()
             .with_axis(Axis::X)
             .with_value(value)
@@ -54,7 +57,7 @@ impl ByorGuiContext<'_> {
         max: f32,
         step: f32,
         style: &Style,
-    ) -> f32 {
+    ) -> WidgetResult<f32> {
         scroll::ScrollBar::new()
             .with_axis(Axis::Y)
             .with_value(value)
@@ -71,7 +74,7 @@ impl ByorGuiContext<'_> {
         &mut self,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
+    ) -> WidgetResult<R> {
         scroll::ScrollView::new()
             .with_axis(Axis::X)
             .with_style(style)
@@ -84,7 +87,7 @@ impl ByorGuiContext<'_> {
         &mut self,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
+    ) -> WidgetResult<R> {
         scroll::ScrollView::new()
             .with_axis(Axis::Y)
             .with_style(style)
@@ -99,7 +102,7 @@ impl ByorGuiContext<'_> {
         position: FloatPosition,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> Option<R> {
+    ) -> WidgetResult<Option<R>> {
         popup::Popup::new()
             .with_position(position)
             .with_style(style)

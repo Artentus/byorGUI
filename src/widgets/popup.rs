@@ -1,4 +1,4 @@
-use super::Widget;
+use super::{Widget, WidgetResult};
 use crate::*;
 
 pub struct Popup<'style> {
@@ -48,14 +48,16 @@ impl Popup<'_> {
 }
 
 impl Popup<'_> {
+    #[track_caller]
     pub fn show<R>(
         self,
         gui: &mut ByorGuiContext<'_>,
         open: &mut bool,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> Option<R> {
+    ) -> WidgetResult<Option<R>> {
         let result = if *open {
-            let response = gui.insert_floating_node(self.uid, self.position, self.style, contents);
+            let response =
+                gui.insert_floating_node(self.uid, self.position, self.style, contents)?;
 
             //  if this is the first frame the popup opened, do not immediately close it
             let previous_open = gui
@@ -77,6 +79,6 @@ impl Popup<'_> {
 
         gui.insert_persistent_state(self.uid, PersistentStateKey::PreviousPopupState, *open);
 
-        result
+        Ok(result)
     }
 }

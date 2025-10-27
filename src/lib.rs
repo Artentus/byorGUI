@@ -15,6 +15,7 @@ pub use math::*;
 use parley::layout::Layout as TextLayout;
 use smallbox::smallbox;
 use std::any::Any;
+use std::fmt;
 use std::hash::Hasher;
 use std::ops::Deref;
 use style::computed::*;
@@ -375,11 +376,6 @@ impl ByorGui {
             self.data.hovered_node_override = None;
         }
 
-        self.data
-            .previous_state
-            .values_mut()
-            .for_each(|state| state.referenced = false);
-
         let mut hovered_node = None;
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
@@ -405,6 +401,10 @@ impl ByorGui {
         mouse_state: MouseState,
     ) -> ByorGuiContext<'gui> {
         self.data.text_layouts.clear();
+        self.data
+            .previous_state
+            .values_mut()
+            .for_each(|state| state.referenced = false);
         self.data
             .float_positions
             .values_mut()
@@ -620,6 +620,27 @@ impl<T> NodeResponse<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct DuplicateUidError {
+    location: &'static std::panic::Location<'static>,
+}
+
+impl fmt::Display for DuplicateUidError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "duplicate UID at {}:{}:{}",
+            self.location.file(),
+            self.location.line(),
+            self.location.column(),
+        )
+    }
+}
+
+impl std::error::Error for DuplicateUidError {}
+
+pub type InsertNodeResult<T> = widgets::WidgetResult<NodeResponse<T>>;
+
 impl ByorGuiContext<'_> {
     #[must_use]
     #[inline]
@@ -652,6 +673,7 @@ impl ByorGuiContext<'_> {
         }
     }
 
+    #[track_caller]
     #[must_use]
     #[inline(never)]
     fn insert_leaf_node<'gui>(
@@ -659,7 +681,7 @@ impl ByorGuiContext<'_> {
         uid: Option<Uid>,
         style: &Style,
         is_root: bool,
-    ) -> ByorGuiContext<'gui> {
+    ) -> widgets::WidgetResult<ByorGuiContext<'gui>> {
         let cascaded_style = style.cascade(&self.parent_style);
         let computed_style = compute_style(
             style,
@@ -668,15 +690,24 @@ impl ByorGuiContext<'_> {
             self.data.scale_factor,
         );
         let input_state = self.compute_node_input_state(uid);
-
         let builder = self.builder.insert(Node::new(uid, computed_style), is_root);
 
-        ByorGuiContext {
+        if let Some(uid) = uid {
+            let prev_state = self.data.previous_state.entry(uid).or_default();
+            if prev_state.referenced {
+                return Err(DuplicateUidError {
+                    location: std::panic::Location::caller(),
+                });
+            }
+            prev_state.referenced = true;
+        }
+
+        Ok(ByorGuiContext {
             builder,
             data: self.data,
             parent_style: cascaded_style,
             parent_input_state: input_state,
-        }
+        })
     }
 
     #[inline(never)]
@@ -774,68 +805,72 @@ impl ByorGuiContext<'_> {
         result
     }
 
-    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> NodeResponse<()> {
+    #[track_caller]
+    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> InsertNodeResult<()> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, false);
+        let context = self.insert_leaf_node(uid, style, false)?;
         let input_state = context.parent_input_state;
 
-        NodeResponse {
+        Ok(NodeResponse {
             input_state,
             result: (),
-        }
+        })
     }
 
+    #[track_caller]
     pub fn insert_container_node<R>(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> NodeResponse<R> {
+    ) -> InsertNodeResult<R> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, false);
+        let context = self.insert_leaf_node(uid, style, false)?;
         let input_state = context.parent_input_state;
         let result = contents(context);
 
-        NodeResponse {
+        Ok(NodeResponse {
             input_state,
             result,
-        }
+        })
     }
 
+    #[track_caller]
     pub fn insert_text_node(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
         text: &str,
-    ) -> NodeResponse<()> {
+    ) -> InsertNodeResult<()> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let mut context = self.insert_leaf_node(uid, style, false);
+        let mut context = self.insert_leaf_node(uid, style, false)?;
         let input_state = context.parent_input_state;
         context.layout_text(text);
 
-        NodeResponse {
+        Ok(NodeResponse {
             input_state,
             result: (),
-        }
+        })
     }
 
+    #[track_caller]
     pub fn insert_floating_node<R>(
         &mut self,
         uid: Uid,
         position: FloatPosition,
         style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> NodeResponse<R> {
+    ) -> InsertNodeResult<R> {
         let uid = self.compute_recursive_uid(uid);
         self.update_float_position(uid, position);
-        let context = self.insert_leaf_node(Some(uid), style, true);
+        let context = self.insert_leaf_node(Some(uid), style, true)?;
         let input_state = context.parent_input_state;
         let result = contents(context);
 
-        NodeResponse {
+        Ok(NodeResponse {
             input_state,
             result,
-        }
+        })
     }
 }
 

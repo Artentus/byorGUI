@@ -1,6 +1,7 @@
 use anyhow::{Result, format_err};
 use byor_gui::input::*;
 use byor_gui::style::*;
+use byor_gui::widgets::*;
 use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
@@ -231,15 +232,18 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 }) = self.state.as_mut()
                     && surface_valid
                 {
-                    self.gui.frame(
-                        Vec2 {
-                            x: surface.config.width.px(),
-                            y: surface.config.height.px(),
-                        },
-                        window.scale_factor() as f32,
-                        self.mouse_state,
-                        |gui| build_gui(&mut self.app_state, gui),
-                    );
+                    self.gui
+                        .frame(
+                            Vec2 {
+                                x: surface.config.width.px(),
+                                y: surface.config.height.px(),
+                            },
+                            window.scale_factor() as f32,
+                            self.mouse_state,
+                            |gui| build_gui(&mut self.app_state, gui),
+                        )
+                        .map_err(|e| format_err!("{e}"))
+                        .expect("error building GUI");
                     self.mouse_state.scroll_delta = Vec2::ZERO;
 
                     let mut scene = Scene::new();
@@ -294,7 +298,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
     }
 }
 
-fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
+fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> WidgetResult<()> {
     gui.vertical_scroll_view(
         &style! {
             height: Sizing::Grow,
@@ -306,17 +310,23 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
             layout_direction: Direction::TopToBottom,
         },
         |mut gui| {
-            for _ in 0..5 {
-                gui.insert_node(
-                    None,
-                    &style! {
-                        width: 100.pt(),
-                        height: 100.pt(),
-                    },
-                );
+            for i in 0..5 {
+                gui.uid_scope(Uid::new(i), |gui| {
+                    gui.insert_node(
+                        Some(Uid::from_array(b"test")),
+                        &style! {
+                            width: 100.pt(),
+                            height: 100.pt(),
+                        },
+                    )?;
+
+                    Ok(())
+                })?
             }
+
+            Ok(())
         },
-    );
+    )??;
 
     gui.horizontal_scroll_view(
         &style! {
@@ -337,10 +347,12 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                         width: 100.pt(),
                         height: 100.pt(),
                     },
-                );
+                )?;
             }
+
+            Ok(())
         },
-    );
+    )??;
 
     gui.insert_container_node(
         None,
@@ -358,7 +370,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                     width: Sizing::Grow,
                     height: 100.pt(),
                 },
-            );
+            )?;
 
             gui.insert_container_node(
                 None,
@@ -382,7 +394,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                             vertical_text_alignment: VerticalTextAlignment::Center,
                         },
                         "Lorem ipsum dolor sit amet",
-                    );
+                    )?;
 
                     gui.insert_container_node(
                         const { Some(Uid::from_slice(b"popup_parent")) },
@@ -412,13 +424,23 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) {
                                             horizontal_text_alignment: HorizontalTextAlignment::Justify,
                                         },
                                         include_str!("lorem_ipsum.txt"),
-                                    );
+                                    )?;
+
+                                    Ok(())
                                 },
-                            );
+                            )?.transpose()?;
+
+                            Ok(())
                         }
-                    );
+                    )?.result?;
+
+                    Ok(())
                 },
-            );
+            )?.result?;
+
+            Ok(())
         },
-    );
+    )?.result?;
+
+    Ok(())
 }

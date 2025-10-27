@@ -1,4 +1,4 @@
-use super::Widget;
+use super::{Widget, WidgetResult};
 use crate::style::axis::*;
 use crate::*;
 
@@ -112,7 +112,8 @@ impl ScrollBar<'_> {
 }
 
 impl ScrollBar<'_> {
-    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> f32 {
+    #[track_caller]
+    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> WidgetResult<f32> {
         let style = self
             .style
             .clone()
@@ -148,15 +149,15 @@ impl ScrollBar<'_> {
 
         gui.insert_container_node(Some(self.uid), &style, |mut gui| {
             if gui
-                .insert_text_node(Some(dec_button_uid), &button_style, "<")
+                .insert_text_node(Some(dec_button_uid), &button_style, "<")?
                 .clicked(MouseButtons::PRIMARY)
             {
                 value -= self.step();
             }
 
-            gui.insert_node(None, &leading_space_style);
+            gui.insert_node(None, &leading_space_style)?;
 
-            let response = gui.insert_node(Some(thumb_uid), &thumb_style);
+            let response = gui.insert_node(Some(thumb_uid), &thumb_style)?;
             if response.clicked(MouseButtons::PRIMARY) {
                 let thumb_pos = gui
                     .get_previous_state(thumb_uid)
@@ -223,17 +224,18 @@ impl ScrollBar<'_> {
                 value = (scroll_position / scroll_space) * (self.max - self.min);
             }
 
-            gui.insert_node(None, &trailing_space_style);
+            gui.insert_node(None, &trailing_space_style)?;
 
             if gui
-                .insert_text_node(Some(inc_button_uid), &button_style, ">")
+                .insert_text_node(Some(inc_button_uid), &button_style, ">")?
                 .clicked(MouseButtons::PRIMARY)
             {
                 value += self.step();
             }
-        });
 
-        value.clamp(self.min, self.max)
+            Ok(value.clamp(self.min, self.max))
+        })?
+        .result
     }
 }
 
@@ -284,11 +286,12 @@ impl ScrollView<'_> {
 }
 
 impl ScrollView<'_> {
+    #[track_caller]
     pub fn show<R>(
         self,
         gui: &mut ByorGuiContext<'_>,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
+    ) -> WidgetResult<R> {
         let scroll_view_style = self
             .style
             .clone()
@@ -334,7 +337,7 @@ impl ScrollView<'_> {
                     };
 
                     contents(gui)
-                });
+                })?;
 
             if max_scroll > 0.px() {
                 if response.is_hovered() {
@@ -353,14 +356,14 @@ impl ScrollView<'_> {
                     .with_max(max_scroll.value())
                     .with_step((POINTS_PER_SCROLL_LINE * gui.scale_factor()).value())
                     .with_style(&scroll_bar_style)
-                    .show(&mut gui)
+                    .show(&mut gui)?
                     .px();
             }
 
             gui.insert_persistent_state(self.uid, self.axis.persistent_state_scroll_key(), scroll);
 
-            response.result
-        })
+            Ok(response.result)
+        })?
         .result
     }
 }

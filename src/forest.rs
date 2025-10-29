@@ -68,10 +68,10 @@ impl<T> Clone for TreeRef<'_, T, Shared> {
     }
 }
 
-impl<'a, T, M: Mutability> Descendants<'a, T, M> {
+impl<'a, T> Descendants<'a, T, Shared> {
     #[must_use]
     #[inline]
-    fn new(nodes: M::Ref<'a, [T]>, tree_properties: &'a [TreeProperties]) -> Self {
+    fn new(nodes: &[T], tree_properties: &'a [TreeProperties]) -> Self {
         assert_eq!(nodes.len(), tree_properties.len());
         let len = nodes.len() as u32;
 
@@ -83,7 +83,26 @@ impl<'a, T, M: Mutability> Descendants<'a, T, M> {
             _tree_properties: PhantomData,
         }
     }
+}
 
+impl<'a, T> Descendants<'a, T, Exclusive> {
+    #[must_use]
+    #[inline]
+    fn new_mut(nodes: &mut [T], tree_properties: &'a [TreeProperties]) -> Self {
+        assert_eq!(nodes.len(), tree_properties.len());
+        let len = nodes.len() as u32;
+
+        Self {
+            nodes: nodes.as_mut_ptr(),
+            tree_properties: tree_properties.as_ptr(),
+            len,
+            _nodes: PhantomData,
+            _tree_properties: PhantomData,
+        }
+    }
+}
+
+impl<'a, T, M: Mutability> Descendants<'a, T, M> {
     #[must_use]
     #[inline]
     pub fn len(&self) -> u32 {
@@ -153,10 +172,10 @@ impl<'a, T> Descendants<'a, T, Exclusive> {
         Some((
             TreeRef {
                 parent: child,
-                descendants: Descendants::new(child_nodes, child_tree_properties),
+                descendants: Descendants::new_mut(child_nodes, child_tree_properties),
                 is_root: child_is_root,
             },
-            Descendants::new(nodes, tree_properties),
+            Descendants::new_mut(nodes, tree_properties),
         ))
     }
 
@@ -359,7 +378,7 @@ impl<T> Forest<T> {
 
         Some(TreeRef {
             parent: root,
-            descendants: Descendants::new(nodes, tree_properties),
+            descendants: Descendants::new_mut(nodes, tree_properties),
             is_root: true,
         })
     }
@@ -418,7 +437,7 @@ impl<T> TreeIter<'_, T, Exclusive> {
 
         Some(TreeRef {
             parent,
-            descendants: Descendants::new(nodes, tree_properties),
+            descendants: Descendants::new_mut(nodes, tree_properties),
             is_root: true,
         })
     }

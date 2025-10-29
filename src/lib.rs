@@ -5,6 +5,8 @@ mod math;
 mod multi_vec;
 pub mod rendering;
 pub mod style;
+#[cfg(test)]
+mod tests;
 pub mod theme;
 pub mod widgets;
 

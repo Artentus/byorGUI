@@ -1,75 +1,54 @@
-use super::{Widget, WidgetResult};
+use super::*;
+use crate::theme::StyleClass;
 use crate::*;
 
-pub struct Label<'text, 'style> {
-    uid: Option<Uid>,
+#[derive(Default)]
+pub struct LabelData<'text> {
     text: &'text str,
-    style: &'style Style,
 }
 
-impl Label<'_, '_> {
+pub type Label<'text, 'style, 'classes> = Widget<'style, 'classes, LabelData<'text>>;
+
+impl<'style, 'classes> Label<'_, 'style, 'classes> {
+    pub const TYPE_CLASS: StyleClass = StyleClass::new_static("###label");
+
+    #[must_use]
     #[inline]
-    pub const fn uid(&self) -> Option<Uid> {
-        self.uid
+    pub fn text(&self) -> &str {
+        self.data().text
     }
 
+    #[must_use]
     #[inline]
-    pub const fn text(&self) -> &str {
-        self.text
+    pub fn with_text<'text>(self, text: &'text str) -> Label<'text, 'style, 'classes> {
+        self.map_data(|data| LabelData { text, ..data })
     }
 
+    #[must_use]
     #[inline]
-    pub const fn style(&self) -> &Style {
-        self.style
-    }
-}
-
-impl Widget for Label<'_, '_> {
-    #[inline]
-    fn with_uid(uid: Uid) -> Self {
-        Self {
-            uid: Some(uid),
-            text: "",
-            style: &Style::DEFAULT,
-        }
-    }
-
-    #[inline]
-    fn new() -> Self {
-        Self {
-            uid: None,
-            text: "",
-            style: &Style::DEFAULT,
-        }
+    pub fn with_uid_from_text(self) -> Self {
+        let uid = Uid::from_slice(self.data.text.as_bytes());
+        self.with_uid(uid)
     }
 }
 
-impl<'style> Label<'_, 'style> {
+impl WidgetData for LabelData<'_> {
     #[inline]
-    pub const fn with_text<'text>(self, text: &'text str) -> Label<'text, 'style> {
-        Label { text, ..self }
+    fn type_class(&self) -> StyleClass {
+        Label::TYPE_CLASS
     }
 }
 
-impl<'text> Label<'text, '_> {
-    #[inline]
-    pub const fn with_style<'style>(self, style: &'style Style) -> Label<'text, 'style> {
-        Label { style, ..self }
-    }
-}
+impl LeafWidgetData for LabelData<'_> {
+    type ShowResult = ();
 
-impl Label<'_, '_> {
-    #[inline]
-    pub const fn with_text_as_uid(mut self) -> Self {
-        self.uid = Some(Uid::from_slice(self.text.as_bytes()));
-        self
-    }
-}
-
-impl Label<'_, '_> {
-    #[track_caller]
-    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> WidgetResult<()> {
-        gui.insert_text_node(self.uid, self.style, self.text)?;
+    fn show(
+        self,
+        gui: &mut ByorGuiContext<'_>,
+        uid: MaybeUid,
+        style: Style,
+    ) -> WidgetResult<Self::ShowResult> {
+        gui.insert_text_node(uid.into(), &style, self.text)?;
         Ok(())
     }
 }

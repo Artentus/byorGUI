@@ -370,8 +370,11 @@ impl Default for PersistentFloatPosition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Property<T> {
+    /// The property is not specified
+    #[default]
+    Unspecified,
     /// A property-specific default value (not necessarily the same as [`Default::default()`])
     Initial,
     /// The same value as its parent, or the initial value in case of the root
@@ -385,7 +388,7 @@ impl<T> Property<T> {
     #[inline]
     pub fn unwrap_or(self, default: T) -> T {
         match self {
-            Self::Initial | Self::Inherit => default,
+            Self::Unspecified | Self::Initial | Self::Inherit => default,
             Self::Value(value) => value,
         }
     }
@@ -394,7 +397,7 @@ impl<T> Property<T> {
     #[inline]
     pub fn unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
         match self {
-            Self::Initial | Self::Inherit => f(),
+            Self::Unspecified | Self::Initial | Self::Inherit => f(),
             Self::Value(value) => value,
         }
     }
@@ -403,6 +406,7 @@ impl<T> Property<T> {
     #[inline]
     pub fn as_ref(&self) -> Property<&T> {
         match self {
+            Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
             Self::Inherit => Property::Inherit,
             Self::Value(value) => Property::Value(value),
@@ -413,6 +417,7 @@ impl<T> Property<T> {
     #[inline]
     pub fn as_mut(&mut self) -> Property<&mut T> {
         match self {
+            Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
             Self::Inherit => Property::Inherit,
             Self::Value(value) => Property::Value(value),
@@ -425,6 +430,7 @@ impl<T: Deref> Property<T> {
     #[inline]
     pub fn as_deref(&self) -> Property<&<T as Deref>::Target> {
         match self {
+            Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
             Self::Inherit => Property::Inherit,
             Self::Value(value) => Property::Value(value.deref()),
@@ -437,6 +443,7 @@ impl<T: Clone> Property<&T> {
     #[inline]
     pub fn cloned(self) -> Property<T> {
         match self {
+            Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
             Self::Inherit => Property::Inherit,
             Self::Value(value) => Property::Value(value.clone()),
@@ -449,6 +456,7 @@ impl<T: Copy> Property<&T> {
     #[inline]
     pub fn copied(self) -> Property<T> {
         match self {
+            Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
             Self::Inherit => Property::Inherit,
             Self::Value(value) => Property::Value(*value),
@@ -463,8 +471,14 @@ impl<T> From<T> for Property<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum PropertyFallback {
+    Initial,
+    Inherit,
+}
+
 macro_rules! define_style {
-    ($([$default_value:ident] $property_name:ident: $property_type:ty { $initial_value:expr },)*) => {
+    ($([$fallback_value:ident] $property_name:ident: $property_type:ty { $initial_value:expr },)*) => {
         #[derive(Debug, Clone, StyleBuilder)]
         pub struct Style {
             $(pub $property_name: Property<$property_type>,)*
@@ -477,7 +491,7 @@ macro_rules! define_style {
 
         impl Style {
             pub const DEFAULT: Self = Self {
-                $($property_name: Property::$default_value,)*
+                $($property_name: Property::Unspecified,)*
             };
         }
 
@@ -490,11 +504,24 @@ macro_rules! define_style {
 
         impl Style {
             #[must_use]
+            pub fn or_else(&self, other: &Self) -> Self {
+                Self {
+                    $(
+                        $property_name: if matches!(&self.$property_name, Property::Unspecified) {
+                            other.$property_name.clone()
+                        } else {
+                            self.$property_name.clone()
+                        },
+                    )*
+                }
+            }
+
+            #[must_use]
             pub fn cascade_root(&self, screen_size: Vec2<Pixel>) -> CascadedStyle {
                 let mut style = CascadedStyle {
                     $(
                         $property_name: match &self.$property_name {
-                            Property::Initial | Property::Inherit => $initial_value,
+                            Property::Unspecified | Property::Initial | Property::Inherit => $initial_value,
                             Property::Value(value) => value.clone(),
                         },
                     )*
@@ -515,6 +542,12 @@ macro_rules! define_style {
                 CascadedStyle {
                     $(
                         $property_name: match &self.$property_name {
+                            Property::Unspecified => {
+                                match PropertyFallback::$fallback_value {
+                                    PropertyFallback::Initial => $initial_value,
+                                    PropertyFallback::Inherit => parent_style.$property_name.clone(),
+                                }
+                            }
                             Property::Initial => $initial_value,
                             Property::Inherit => parent_style.$property_name.clone(),
                             Property::Value(value) => value.clone(),

@@ -1,57 +1,35 @@
-use super::{Widget, WidgetResult};
+use super::*;
+use crate::theme::StyleClass;
 use crate::*;
 
-pub struct FlexPanel<'style> {
-    uid: Option<Uid>,
-    style: &'style Style,
+#[derive(Default)]
+pub struct FlexPanelData;
+
+pub type FlexPanel<'style, 'classes> = Widget<'style, 'classes, FlexPanelData>;
+
+impl FlexPanel<'_, '_> {
+    pub const TYPE_CLASS: StyleClass = StyleClass::new_static("###flex_panel");
 }
 
-impl FlexPanel<'_> {
+impl WidgetData for FlexPanelData {
     #[inline]
-    pub const fn uid(&self) -> Option<Uid> {
-        self.uid
-    }
-
-    #[inline]
-    pub const fn style(&self) -> &Style {
-        self.style
-    }
-}
-
-impl Widget for FlexPanel<'_> {
-    #[inline]
-    fn with_uid(uid: Uid) -> Self {
-        Self {
-            uid: Some(uid),
-            style: &Style::DEFAULT,
-        }
-    }
-
-    #[inline]
-    fn new() -> Self {
-        Self {
-            uid: None,
-            style: &Style::DEFAULT,
-        }
+    fn type_class(&self) -> StyleClass {
+        FlexPanel::TYPE_CLASS
     }
 }
 
-impl FlexPanel<'_> {
-    #[inline]
-    pub const fn with_style<'style>(self, style: &'style Style) -> FlexPanel<'style> {
-        FlexPanel { style, ..self }
-    }
-}
+impl ContainerWidgetData for FlexPanelData {
+    type ShowResult<T> = T;
 
-impl FlexPanel<'_> {
-    #[track_caller]
-    pub fn show<R>(
+    fn show<R>(
         self,
         gui: &mut ByorGuiContext<'_>,
+        uid: MaybeUid,
+        style: Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> WidgetResult<R> {
+    ) -> WidgetResult<Self::ShowResult<R>> {
         Ok(gui
-            .insert_container_node(self.uid, self.style, contents)?
+            .insert_container_node(uid.into(), &style, contents)?
             .result)
     }
 }

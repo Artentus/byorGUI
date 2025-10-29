@@ -4,117 +4,283 @@ pub mod panel;
 pub mod popup;
 pub mod scroll;
 
-use crate::style::axis::*;
+use crate::theme::StyleClass;
 use crate::*;
 
-pub trait Widget: Sized {
-    fn with_uid(uid: Uid) -> Self;
+pub use button::Button;
+pub use label::Label;
+pub use panel::FlexPanel;
+pub use popup::Popup;
+pub use scroll::{ScrollBar, ScrollView};
 
-    #[track_caller]
+#[derive(Debug, Clone, Copy)]
+pub enum MaybeUid {
+    Some(Uid),
+    None(&'static std::panic::Location<'static>),
+}
+
+impl From<Uid> for MaybeUid {
     #[inline]
-    fn new() -> Self {
-        Self::with_uid(Uid::from_caller_location())
+    fn from(uid: Uid) -> Self {
+        Self::Some(uid)
+    }
+}
+
+impl From<MaybeUid> for Option<Uid> {
+    #[inline]
+    fn from(value: MaybeUid) -> Self {
+        match value {
+            MaybeUid::Some(uid) => Some(uid),
+            MaybeUid::None(_) => None,
+        }
+    }
+}
+
+impl MaybeUid {
+    #[track_caller]
+    #[must_use]
+    #[inline]
+    pub fn for_caller_location() -> Self {
+        Self::None(std::panic::Location::caller())
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn produce(self) -> Uid {
+        match self {
+            Self::Some(uid) => uid,
+            Self::None(location) => Uid::new(location),
+        }
     }
 }
 
 pub type WidgetResult<T> = Result<T, DuplicateUidError>;
 
-impl ByorGuiContext<'_> {
+pub trait WidgetData: Sized {
+    fn type_class(&self) -> StyleClass;
+}
+
+pub trait LeafWidgetData: WidgetData {
+    type ShowResult;
+
+    #[track_caller]
+    fn show(
+        self,
+        gui: &mut ByorGuiContext<'_>,
+        uid: MaybeUid,
+        style: Style,
+    ) -> WidgetResult<Self::ShowResult>;
+}
+
+pub trait ContainerWidgetData: WidgetData {
+    type ShowResult<T>;
+
+    #[track_caller]
+    fn show<R>(
+        self,
+        gui: &mut ByorGuiContext<'_>,
+        uid: MaybeUid,
+        style: Style,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> WidgetResult<Self::ShowResult<R>>;
+}
+
+#[derive(Debug)]
+pub struct Widget<'style, 'classes, Data: WidgetData> {
+    uid: MaybeUid,
+    style: Option<&'style Style>,
+    classes: &'classes [StyleClass],
+    data: Data,
+}
+
+impl<Data: WidgetData + Default> Default for Widget<'_, '_, Data> {
     #[track_caller]
     #[inline]
-    pub fn label(&mut self, text: &str, style: &Style) -> WidgetResult<()> {
-        label::Label::new()
-            .with_text(text)
-            .with_style(style)
-            .show(self)
+    fn default() -> Self {
+        Self {
+            uid: MaybeUid::for_caller_location(),
+            style: None,
+            classes: &[],
+            data: Data::default(),
+        }
+    }
+}
+
+impl<Data: WidgetData> From<Data> for Widget<'_, '_, Data> {
+    #[track_caller]
+    #[inline]
+    fn from(data: Data) -> Self {
+        Self {
+            uid: MaybeUid::for_caller_location(),
+            style: None,
+            classes: &[],
+            data,
+        }
+    }
+}
+
+impl<'style, 'classes, Data: WidgetData> Widget<'style, 'classes, Data> {
+    #[must_use]
+    #[inline]
+    pub fn type_class(&self) -> StyleClass {
+        self.data.type_class()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn uid(&self) -> Option<Uid> {
+        self.uid.into()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_uid(self, uid: Uid) -> Self {
+        Self {
+            uid: uid.into(),
+            ..self
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn style(&self) -> Option<&Style> {
+        self.style
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_style<'new_style>(
+        self,
+        style: &'new_style Style,
+    ) -> Widget<'new_style, 'classes, Data> {
+        Widget {
+            style: Some(style),
+            ..self
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn classes(&self) -> &[StyleClass] {
+        self.classes
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_classes<'new_classes>(
+        self,
+        classes: &'new_classes [StyleClass],
+    ) -> Widget<'style, 'new_classes, Data> {
+        Widget { classes, ..self }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn data(&self) -> &Data {
+        &self.data
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn map_data<NewData: WidgetData>(
+        self,
+        f: impl FnOnce(Data) -> NewData,
+    ) -> Widget<'style, 'classes, NewData> {
+        Widget {
+            uid: self.uid,
+            style: self.style,
+            classes: self.classes,
+            data: f(self.data),
+        }
+    }
+}
+
+impl ByorGuiContext<'_> {
+    #[track_caller]
+    pub fn show<Data: LeafWidgetData>(
+        &mut self,
+        widget: Widget<'_, '_, Data>,
+    ) -> WidgetResult<Data::ShowResult> {
+        let style = self
+            .theme()
+            .build_style(widget.style, widget.classes, widget.type_class());
+
+        widget.data.show(self, widget.uid, style)
+    }
+
+    #[track_caller]
+    pub fn show_container<Data: ContainerWidgetData, R>(
+        &mut self,
+        widget: Widget<'_, '_, Data>,
+        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+    ) -> WidgetResult<Data::ShowResult<R>> {
+        let style = self
+            .theme()
+            .build_style(widget.style, widget.classes, widget.type_class());
+
+        widget.data.show(self, widget.uid, style, contents)
     }
 
     #[track_caller]
     #[inline]
-    pub fn button(&mut self, text: &str, style: &Style) -> WidgetResult<bool> {
-        button::Button::new()
-            .with_text(text)
-            .with_text_as_uid()
-            .with_style(style)
-            .show(self)
+    pub fn label(&mut self, text: &str) -> WidgetResult<()> {
+        let label = Label::default().with_text(text);
+        self.show(label)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub fn button(&mut self, text: &str) -> WidgetResult<bool> {
+        let button = Button::default().with_text(text).with_uid_from_text();
+        self.show(button)
     }
 
     #[track_caller]
     #[inline]
     pub fn flex_panel<R>(
         &mut self,
-        style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<R> {
-        panel::FlexPanel::new()
-            .with_style(style)
-            .show(self, contents)
+        let panel = FlexPanel::default();
+        self.show_container(panel, contents)
     }
 
     #[track_caller]
     #[inline]
-    pub fn horizontal_scroll_bar(
-        &mut self,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-        style: &Style,
-    ) -> WidgetResult<f32> {
-        scroll::ScrollBar::new()
-            .with_axis(Axis::X)
+    pub fn horizontal_scroll_bar(&mut self, value: f32, min: f32, max: f32) -> WidgetResult<f32> {
+        let scroll_bar = ScrollBar::horizontal()
             .with_value(value)
             .with_min(min)
-            .with_max(max)
-            .with_step(step)
-            .with_style(style)
-            .show(self)
+            .with_max(max);
+        self.show(scroll_bar)
     }
 
     #[track_caller]
     #[inline]
-    pub fn vertical_scroll_bar(
-        &mut self,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-        style: &Style,
-    ) -> WidgetResult<f32> {
-        scroll::ScrollBar::new()
-            .with_axis(Axis::Y)
+    pub fn vertical_scroll_bar(&mut self, value: f32, min: f32, max: f32) -> WidgetResult<f32> {
+        let scroll_bar = ScrollBar::vertical()
             .with_value(value)
             .with_min(min)
-            .with_max(max)
-            .with_step(step)
-            .with_style(style)
-            .show(self)
+            .with_max(max);
+        self.show(scroll_bar)
     }
 
     #[track_caller]
     #[inline]
     pub fn horizontal_scroll_view<R>(
         &mut self,
-        style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<R> {
-        scroll::ScrollView::new()
-            .with_axis(Axis::X)
-            .with_style(style)
-            .show(self, contents)
+        self.show_container(ScrollView::horizontal(), contents)
     }
 
     #[track_caller]
     #[inline]
     pub fn vertical_scroll_view<R>(
         &mut self,
-        style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<R> {
-        scroll::ScrollView::new()
-            .with_axis(Axis::Y)
-            .with_style(style)
-            .show(self, contents)
+        self.show_container(ScrollView::vertical(), contents)
     }
 
     #[track_caller]
@@ -123,12 +289,9 @@ impl ByorGuiContext<'_> {
         &mut self,
         open: &mut bool,
         position: FloatPosition,
-        style: &Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<Option<R>> {
-        popup::Popup::new()
-            .with_position(position)
-            .with_style(style)
-            .show(self, open, contents)
+        let popup = Popup::new(open).with_position(position);
+        self.show_container(popup, contents)
     }
 }

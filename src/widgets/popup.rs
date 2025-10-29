@@ -1,67 +1,66 @@
-use super::{Widget, WidgetResult};
+use super::*;
+use crate::theme::StyleClass;
 use crate::*;
 
-pub struct Popup<'style> {
-    uid: Uid,
+pub struct PopupData<'open> {
     position: FloatPosition,
-    style: &'style Style,
+    open: &'open mut bool,
 }
 
-impl Popup<'_> {
-    #[inline]
-    pub const fn uid(&self) -> Uid {
-        self.uid
-    }
+pub type Popup<'open, 'style, 'classes> = Widget<'style, 'classes, PopupData<'open>>;
 
-    #[inline]
-    pub const fn position(&self) -> FloatPosition {
-        self.position
-    }
+impl<'open> Popup<'open, '_, '_> {
+    pub const TYPE_CLASS: StyleClass = StyleClass::new_static("###popup");
 
-    #[inline]
-    pub const fn style(&self) -> &Style {
-        self.style
-    }
-}
-
-impl Widget for Popup<'_> {
-    #[inline]
-    fn with_uid(uid: Uid) -> Self {
-        Self {
-            uid,
-            position: FloatPosition::default(),
-            style: &Style::DEFAULT,
-        }
-    }
-}
-
-impl Popup<'_> {
-    #[inline]
-    pub const fn with_position(self, position: FloatPosition) -> Self {
-        Self { position, ..self }
-    }
-
-    #[inline]
-    pub const fn with_style<'style>(self, style: &'style Style) -> Popup<'style> {
-        Popup { style, ..self }
-    }
-}
-
-impl Popup<'_> {
     #[track_caller]
-    pub fn show<R>(
+    #[must_use]
+    #[inline]
+    pub fn new(open: &'open mut bool) -> Self {
+        PopupData {
+            position: FloatPosition::default(),
+            open,
+        }
+        .into()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn position(&self) -> FloatPosition {
+        self.data().position
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_position(self, position: FloatPosition) -> Self {
+        self.map_data(|data| PopupData { position, ..data })
+    }
+}
+
+impl WidgetData for PopupData<'_> {
+    #[inline]
+    fn type_class(&self) -> StyleClass {
+        Popup::TYPE_CLASS
+    }
+}
+
+impl ContainerWidgetData for PopupData<'_> {
+    type ShowResult<T> = Option<T>;
+
+    fn show<R>(
         self,
         gui: &mut ByorGuiContext<'_>,
-        open: &mut bool,
+        uid: MaybeUid,
+        style: Style,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> WidgetResult<Option<R>> {
-        let result = if *open {
-            let response =
-                gui.insert_floating_node(self.uid, self.position, self.style, contents)?;
+    ) -> WidgetResult<Self::ShowResult<R>> {
+        let uid = uid.produce();
 
-            //  if this is the first frame the popup opened, do not immediately close it
+        let result = if *self.open {
+            let response = gui.insert_floating_node(uid, self.position, &style, contents)?;
+
+            //  If this is the first frame the popup opened, do not immediately close it
             let previous_open = gui
-                .get_persistent_state::<bool>(self.uid, PersistentStateKey::PreviousPopupState)
+                .get_persistent_state::<bool>(uid, PersistentStateKey::PreviousPopupState)
                 .copied()
                 .unwrap_or(false);
 
@@ -69,7 +68,7 @@ impl Popup<'_> {
                 && !gui.global_input_state().clicked_buttons().is_empty()
                 && !response.is_hovered()
             {
-                *open = false;
+                *self.open = false;
             }
 
             Some(response.result)
@@ -77,7 +76,7 @@ impl Popup<'_> {
             None
         };
 
-        gui.insert_persistent_state(self.uid, PersistentStateKey::PreviousPopupState, *open);
+        gui.insert_persistent_state(uid, PersistentStateKey::PreviousPopupState, *self.open);
 
         Ok(result)
     }

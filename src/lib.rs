@@ -5,6 +5,7 @@ mod math;
 mod multi_vec;
 pub mod rendering;
 pub mod style;
+pub mod theme;
 pub mod widgets;
 
 use cranelift_entity::PrimaryMap;
@@ -20,6 +21,7 @@ use std::hash::Hasher;
 use std::ops::Deref;
 use style::computed::*;
 use style::*;
+use theme::Theme;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
@@ -153,13 +155,6 @@ impl Uid {
 
         Self(uid_hash(0, &bytes))
     }
-
-    #[must_use]
-    #[track_caller]
-    fn from_caller_location() -> Self {
-        let location = std::panic::Location::caller();
-        Self::new(location)
-    }
 }
 
 impl IntKey for Uid {
@@ -261,7 +256,7 @@ struct ByorGuiData {
     previous_state: IntMap<Uid, PreviousState>,
     float_positions: IntMap<Uid, PersistentFloatPosition>,
 
-    root_style: Style,
+    theme: Theme,
     scale_factor: f32,
     input_state: InputState,
     hovered_node_override: Option<Uid>,
@@ -361,14 +356,14 @@ fn compute_previous_state(
 impl ByorGui {
     #[must_use]
     #[inline]
-    pub fn root_style(&self) -> &Style {
-        &self.data.root_style
+    pub fn theme(&self) -> &Theme {
+        &self.data.theme
     }
 
     #[must_use]
     #[inline]
-    pub fn root_style_mut(&mut self) -> &mut Style {
-        &mut self.data.root_style
+    pub fn theme_mut(&mut self) -> &mut Theme {
+        &mut self.data.theme
     }
 
     fn update_previous_states(&mut self) {
@@ -413,8 +408,12 @@ impl ByorGui {
         self.data.scale_factor = scale_factor;
         self.data.input_state.update(mouse_state);
 
-        let cascaded_style = self.root_style().cascade_root(screen_size);
-        let computed_style = compute_style(self.root_style(), &cascaded_style, None, scale_factor);
+        let root_style = self
+            .data
+            .theme
+            .build_style(None, &[], Theme::ROOT_TYPE_CLASS);
+        let cascaded_style = root_style.cascade_root(screen_size);
+        let computed_style = compute_style(&root_style, &cascaded_style, None, scale_factor);
         let primary_builder = self.forest.insert_primary(Node::new(None, computed_style));
 
         ByorGuiContext {
@@ -494,6 +493,12 @@ pub struct ByorGuiContext<'gui> {
 }
 
 impl ByorGuiContext<'_> {
+    #[must_use]
+    #[inline]
+    pub fn theme(&self) -> &Theme {
+        &self.data.theme
+    }
+
     #[must_use]
     #[inline]
     pub fn scale_factor(&self) -> f32 {

@@ -337,7 +337,8 @@ pub(crate) fn compute_style(
     .clamp(min_size, max_size);
 
     let padding = match &style.padding {
-        Property::Initial => Arc::clone(&*INITIAL_COMPUTED_PADDING),
+        // The padding property uses "Initial" fallback
+        Property::Unspecified | Property::Initial => Arc::clone(&*INITIAL_COMPUTED_PADDING),
         Property::Inherit => {
             if let Some(parent_style) = parent_style {
                 Arc::clone(&parent_style.padding)
@@ -371,7 +372,8 @@ pub(crate) fn compute_style(
             style.font_weight,
             style.font_width,
         ],
-        Property::Inherit
+        // The font properties use "Inherit" fallback
+        Property::Unspecified | Property::Inherit
     ) {
         if let Some(parent_style) = parent_style {
             Arc::clone(&parent_style.font)

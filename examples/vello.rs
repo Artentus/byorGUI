@@ -1,6 +1,7 @@
 use anyhow::{Result, format_err};
 use byor_gui::input::*;
 use byor_gui::style::*;
+use byor_gui::theme::*;
 use byor_gui::widgets::*;
 use byor_gui::*;
 use std::sync::Arc;
@@ -46,11 +47,7 @@ struct ExampleApp {
 impl ExampleApp {
     fn new() -> Self {
         let mut gui = ByorGui::default();
-        *gui.root_style_mut() = style! {
-            padding: 5.pt(),
-            child_spacing: 5.pt(),
-            font_size: 16.pt(),
-        };
+        create_theme(gui.theme_mut());
 
         Self {
             context: RenderContext::new(),
@@ -298,144 +295,173 @@ impl winit::application::ApplicationHandler for ExampleApp {
     }
 }
 
-fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> WidgetResult<()> {
-    gui.vertical_scroll_view(
+fn create_theme(theme: &mut Theme) {
+    theme.insert_style(
+        Theme::UNIVERSAL_CLASS,
         &style! {
-            height: Sizing::Grow,
-            max_height: 600.pt(),
             padding: 5.pt(),
-            child_alignment: Alignment::End,
-            cross_axis_alignment: Alignment::Center,
             child_spacing: 5.pt(),
-            layout_direction: Direction::TopToBottom,
         },
-        |mut gui| {
-            for i in 0..5 {
-                gui.uid_scope(Uid::new(i), |gui| {
-                    gui.insert_node(
-                        Some(Uid::from_array(b"test")),
-                        &style! {
-                            width: 100.pt(),
-                            height: 100.pt(),
-                        },
-                    )?;
+    );
 
-                    Ok(())
-                })?
-            }
-
-            Ok(())
+    theme.insert_style(
+        Theme::ROOT_TYPE_CLASS,
+        &style! {
+            font_size: 16.pt(),
         },
-    )??;
+    );
 
-    gui.horizontal_scroll_view(
+    theme.insert_style(
+        FlexPanel::TYPE_CLASS,
+        &style! {
+            width: Sizing::Grow,
+            height: Sizing::Grow,
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::HORIZONTAL_TYPE_CLASS,
+        &style! {
+            padding: 0.px(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::VERTICAL_TYPE_CLASS,
+        &style! {
+            padding: 0.px(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollView::HORIZONTAL_TYPE_CLASS,
         &style! {
             width: Sizing::Grow,
             max_width: 600.pt(),
             flex_ratio: 2.0,
-            padding: 5.pt(),
             child_alignment: Alignment::End,
             cross_axis_alignment: Alignment::Center,
-            child_spacing: 5.pt(),
             layout_direction: Direction::LeftToRight,
         },
-        |mut gui| {
-            for _ in 0..5 {
+    );
+
+    theme.insert_style(
+        ScrollView::VERTICAL_TYPE_CLASS,
+        &style! {
+            height: Sizing::Grow,
+            max_height: 600.pt(),
+            child_alignment: Alignment::End,
+            cross_axis_alignment: Alignment::Center,
+            layout_direction: Direction::TopToBottom,
+        },
+    );
+}
+
+fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> WidgetResult<()> {
+    gui.vertical_scroll_view(|mut gui| {
+        for i in 0..5 {
+            gui.uid_scope(Uid::new(i), |gui| {
                 gui.insert_node(
-                    None,
+                    Some(Uid::from_array(b"test")),
                     &style! {
                         width: 100.pt(),
                         height: 100.pt(),
                     },
                 )?;
-            }
 
-            Ok(())
-        },
-    )??;
+                Ok(())
+            })?;
+        }
 
-    gui.flex_panel(
-        &style! {
-            width: Sizing::Grow,
-            height: Sizing::Grow,
-            layout_direction: Direction::TopToBottom,
-            padding: 5.pt(),
-            child_spacing: 5.pt(),
-        },
-        |mut gui| {
+        Ok(())
+    })??;
+
+    gui.horizontal_scroll_view(|mut gui| {
+        for _ in 0..5 {
             gui.insert_node(
                 None,
                 &style! {
-                    width: Sizing::Grow,
+                    width: 100.pt(),
                     height: 100.pt(),
                 },
             )?;
+        }
 
-            gui.flex_panel(
+        Ok(())
+    })??;
+
+    let style = style! {
+        layout_direction: Direction::TopToBottom,
+    };
+    let panel = FlexPanel::default().with_style(&style);
+    gui.show_container(panel, |mut gui| {
+        gui.insert_node(
+            None,
+            &style! {
+                width: Sizing::Grow,
+                height: 100.pt(),
+            },
+        )?;
+
+        let style = style! {
+            layout_direction: Direction::TopToBottom,
+            child_alignment: Alignment::Center,
+        };
+        let panel = FlexPanel::default().with_style(&style);
+        gui.show_container(panel, |mut gui| {
+            let style = style! {
+                width: Sizing::Grow,
+                height: 100.pt(),
+                cross_axis_alignment: Alignment::Center,
+                horizontal_text_alignment: HorizontalTextAlignment::Center,
+                vertical_text_alignment: VerticalTextAlignment::Center,
+            };
+            let label = Label::default()
+                .with_text("Lorem ipsum dolor sit amet")
+                .with_style(&style);
+            gui.show(label)?;
+
+            gui.insert_container_node(
+                const { Some(Uid::from_slice(b"popup_parent")) },
                 &style! {
-                    width: Sizing::Grow,
-                    height: Sizing::Grow,
-                    padding: 5.pt(),
-                    layout_direction: Direction::TopToBottom,
-                    child_alignment: Alignment::Center,
-                    child_spacing: 5.pt(),
+                    width: 100.pt(),
+                    height: 100.pt(),
+                    cross_axis_alignment: Alignment::Center,
                 },
                 |mut gui| {
-                    gui.label(
-                        "Lorem ipsum dolor sit amet",
-                        &style! {
-                            width: Sizing::Grow,
-                            height: 100.pt(),
-                            padding: 5.pt(),
-                            cross_axis_alignment: Alignment::Center,
-                            horizontal_text_alignment: HorizontalTextAlignment::Center,
-                            vertical_text_alignment: VerticalTextAlignment::Center,
-                        },
-                    )?;
+                    if gui.parent_input_state().clicked(MouseButtons::SECONDARY) {
+                        app_state.show_popup = true;
+                    }
 
-                    gui.insert_container_node(
-                        const { Some(Uid::from_slice(b"popup_parent")) },
-                        &style! {
-                            width: 100.pt(),
-                            height: 100.pt(),
-                            cross_axis_alignment: Alignment::Center,
-                        },
+                    gui.popup(
+                        &mut app_state.show_popup,
+                        FloatPosition::CursorFixed,
                         |mut gui| {
-                            if gui.parent_input_state().clicked(MouseButtons::SECONDARY) {
-                                app_state.show_popup = true;
-                            }
-
-                            gui.popup(
-                                &mut app_state.show_popup,
-                                FloatPosition::CursorFixed,
-                                &style! {
-                                    padding: 5.pt(),
-                                },
-                                |mut gui| {
-                                    gui.label(
-                                        include_str!("lorem_ipsum.txt"),
-                                        &style! {
-                                            max_width: 300.px(),
-                                            padding: 5.pt(),
-                                            horizontal_text_alignment: HorizontalTextAlignment::Justify,
-                                        },
-                                    )?;
-
-                                    Ok(())
-                                },
-                            )?.transpose()?;
+                            let style = style! {
+                                max_width: 300.px(),
+                                padding: 5.pt(),
+                                horizontal_text_alignment: HorizontalTextAlignment::Justify,
+                            };
+                            let label = Label::default()
+                                .with_text(include_str!("lorem_ipsum.txt"))
+                                .with_style(&style);
+                            gui.show(label)?;
 
                             Ok(())
-                        }
-                    )?.result?;
+                        },
+                    )?
+                    .transpose()?;
 
                     Ok(())
                 },
-            )??;
+            )?
+            .result?;
 
             Ok(())
-        },
-    )??;
+        })??;
+
+        Ok(())
+    })??;
 
     Ok(())
 }

@@ -1,67 +1,55 @@
-use super::{Widget, WidgetResult};
+use super::*;
+use crate::theme::StyleClass;
 use crate::*;
 
-pub struct Button<'text, 'style> {
-    uid: Uid,
+#[derive(Default)]
+pub struct ButtonData<'text> {
     text: &'text str,
-    style: &'style Style,
 }
 
-impl Button<'_, '_> {
+pub type Button<'text, 'style, 'classes> = Widget<'style, 'classes, ButtonData<'text>>;
+
+impl<'style, 'classes> Button<'_, 'style, 'classes> {
+    pub const TYPE_CLASS: StyleClass = StyleClass::new_static("###button");
+
+    #[must_use]
     #[inline]
-    pub const fn uid(&self) -> Uid {
-        self.uid
+    pub fn text(&self) -> &str {
+        self.data().text
     }
 
+    #[must_use]
     #[inline]
-    pub const fn text(&self) -> &str {
-        self.text
+    pub fn with_text<'text>(self, text: &'text str) -> Button<'text, 'style, 'classes> {
+        self.map_data(|data| ButtonData { text, ..data })
     }
 
+    #[must_use]
     #[inline]
-    pub const fn style(&self) -> &Style {
-        self.style
-    }
-}
-
-impl Widget for Button<'_, '_> {
-    #[inline]
-    fn with_uid(uid: Uid) -> Self {
-        Self {
-            uid,
-            text: "",
-            style: &Style::DEFAULT,
-        }
+    pub fn with_uid_from_text(self) -> Self {
+        let uid = Uid::from_slice(self.data.text.as_bytes());
+        self.with_uid(uid)
     }
 }
 
-impl<'style> Button<'_, 'style> {
+impl WidgetData for ButtonData<'_> {
     #[inline]
-    pub const fn with_text<'text>(self, text: &'text str) -> Button<'text, 'style> {
-        Button { text, ..self }
+    fn type_class(&self) -> StyleClass {
+        Button::TYPE_CLASS
     }
 }
 
-impl<'text> Button<'text, '_> {
-    #[inline]
-    pub const fn with_style<'style>(self, style: &'style Style) -> Button<'text, 'style> {
-        Button { style, ..self }
-    }
-}
+impl LeafWidgetData for ButtonData<'_> {
+    type ShowResult = bool;
 
-impl Button<'_, '_> {
-    #[inline]
-    pub const fn with_text_as_uid(mut self) -> Self {
-        self.uid = Uid::from_slice(self.text.as_bytes());
-        self
-    }
-}
-
-impl Button<'_, '_> {
-    #[track_caller]
-    pub fn show(self, gui: &mut ByorGuiContext<'_>) -> WidgetResult<bool> {
+    fn show(
+        self,
+        gui: &mut ByorGuiContext<'_>,
+        uid: MaybeUid,
+        style: Style,
+    ) -> WidgetResult<Self::ShowResult> {
         Ok(gui
-            .insert_text_node(Some(self.uid), self.style, self.text)?
+            .insert_text_node(Some(uid.produce()), &style, self.text)?
             .clicked(MouseButtons::PRIMARY))
     }
 }

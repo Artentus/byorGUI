@@ -230,7 +230,7 @@ impl ByorGuiContext<'_> {
 
     #[track_caller]
     #[inline]
-    pub fn button(&mut self, text: &str) -> WidgetResult<bool> {
+    pub fn button(&mut self, text: &str) -> WidgetResult<NodeInputState> {
         let button = Button::default().with_text(text).with_uid_from_text();
         self.show(button)
     }

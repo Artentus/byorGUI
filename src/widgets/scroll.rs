@@ -3,10 +3,6 @@ use crate::style::axis::*;
 use crate::theme::StyleClass;
 use crate::*;
 
-const SCROLL_BAR_SIZE: Float<Point> = Float::new(20.0);
-const SCROLL_BAR_THUMB_SIZE: Float<Point> = Float::new(50.0);
-const SCROLL_BAR_SPACING: Float<Point> = Float::new(2.0);
-
 const SCROLL_BAR_UID: Uid = Uid::from_array(b"##scroll_bar");
 const SCROLL_BAR_DEC_BUTTON_UID: Uid = Uid::from_array(b"##scroll_bar_dec_button");
 const SCROLL_BAR_INC_BUTTON_UID: Uid = Uid::from_array(b"##scroll_bar_inc_button");
@@ -18,6 +14,7 @@ pub struct ScrollBarData {
     min: f32,
     max: f32,
     step: Option<f32>,
+    thumb_size_ratio: Option<f32>,
 }
 
 pub type ScrollBar<'style, 'classes> = Widget<'style, 'classes, ScrollBarData>;
@@ -26,6 +23,16 @@ impl ScrollBar<'_, '_> {
     pub const HORIZONTAL_TYPE_CLASS: StyleClass =
         StyleClass::new_static("###horizontal_scroll_bar");
     pub const VERTICAL_TYPE_CLASS: StyleClass = StyleClass::new_static("###vertical_scroll_bar");
+
+    pub const HORIZONTAL_BUTTON_CLASS: StyleClass =
+        StyleClass::new_static("###horizontal_scroll_bar_button");
+    pub const VERTICAL_BUTTON_CLASS: StyleClass =
+        StyleClass::new_static("###vertical_scroll_bar_button");
+
+    pub const HORIZONTAL_THUMB_CLASS: StyleClass =
+        StyleClass::new_static("###horizontal_scroll_bar_thumb");
+    pub const VERTICAL_THUMB_CLASS: StyleClass =
+        StyleClass::new_static("###vertical_scroll_bar_thumb");
 
     #[track_caller]
     #[must_use]
@@ -37,6 +44,7 @@ impl ScrollBar<'_, '_> {
             min: 0.0,
             max: 1.0,
             step: None,
+            thumb_size_ratio: None,
         }
         .into()
     }
@@ -105,6 +113,21 @@ impl ScrollBar<'_, '_> {
             ..data
         })
     }
+
+    #[must_use]
+    #[inline]
+    pub fn thumb_size_ratio(&self) -> Option<f32> {
+        self.data().thumb_size_ratio
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_thumb_size_ratio(self, thumb_size_ratio: f32) -> Self {
+        self.map_data(|data| ScrollBarData {
+            thumb_size_ratio: Some(thumb_size_ratio.clamp(0.0, 1.0)),
+            ..data
+        })
+    }
 }
 
 impl WidgetData for ScrollBarData {
@@ -126,32 +149,38 @@ impl LeafWidgetData for ScrollBarData {
         uid: MaybeUid,
         style: Style,
     ) -> WidgetResult<Self::ShowResult> {
-        let style = style
-            .with_layout_direction(self.axis.primary_direction())
-            .with_child_spacing(SCROLL_BAR_SPACING / 2.0);
+        let style = style.with_layout_direction(self.axis.primary_direction());
 
         let step = self.step.unwrap_or((self.max - self.min) * 0.1);
         let mut value = self.value.clamp(self.min, self.max);
-        let factor = (value - self.min) / (self.max - self.min);
+        let mut factor = (value - self.min) / (self.max - self.min);
+        let mut opposite_factor = 1.0 - factor;
 
-        let leading_space_style = style! { flex_ratio: factor }
-            .with_size_along_axis(self.axis, Sizing::Grow)
-            .with_size_along_axis(!self.axis, SCROLL_BAR_SIZE);
-        let trailing_space_style = style! { flex_ratio: 1.0 - factor }
-            .with_size_along_axis(self.axis, Sizing::Grow)
-            .with_size_along_axis(!self.axis, SCROLL_BAR_SIZE);
-        let thumb_style = Style::default()
-            .with_size_along_axis(self.axis, Sizing::Grow)
-            .with_size_along_axis(!self.axis, SCROLL_BAR_SIZE)
-            .with_min_size_along_axis(self.axis, SCROLL_BAR_SIZE)
-            .with_max_size_along_axis(self.axis, SCROLL_BAR_THUMB_SIZE);
+        if let Some(thumb_size_ratio) = self.thumb_size_ratio {
+            factor *= 1.0 - thumb_size_ratio;
+            opposite_factor *= 1.0 - thumb_size_ratio;
+        }
 
-        let button_style = style! {
-            width: SCROLL_BAR_SIZE,
-            height: SCROLL_BAR_SIZE,
-            text_wrap: false,
-            horizontal_text_alignment: HorizontalTextAlignment::Center,
-            vertical_text_alignment: VerticalTextAlignment::Center,
+        let leading_space_style = style! {
+            width: Sizing::Grow,
+            height: Sizing::Grow,
+            flex_ratio: factor,
+        };
+
+        let trailing_space_style = style! {
+            width: Sizing::Grow,
+            height: Sizing::Grow,
+            flex_ratio: opposite_factor,
+        };
+
+        let button_class = match self.axis {
+            Axis::X => &[ScrollBar::HORIZONTAL_BUTTON_CLASS],
+            Axis::Y => &[ScrollBar::VERTICAL_BUTTON_CLASS],
+        };
+
+        let thumb_class = match self.axis {
+            Axis::X => &[ScrollBar::HORIZONTAL_THUMB_CLASS],
+            Axis::Y => &[ScrollBar::VERTICAL_THUMB_CLASS],
         };
 
         let uid = uid.produce();
@@ -160,16 +189,27 @@ impl LeafWidgetData for ScrollBarData {
         let thumb_uid = uid.concat(SCROLL_BAR_THUMB_UID);
 
         gui.insert_container_node(Some(uid), &style, |mut gui| {
-            if gui
-                .insert_text_node(Some(dec_button_uid), &button_style, "<")?
-                .clicked(MouseButtons::PRIMARY)
-            {
+            let dec_button = Button::default()
+                .with_uid(dec_button_uid)
+                .with_classes(button_class);
+            if gui.show(dec_button)?.clicked(MouseButtons::PRIMARY) {
                 value -= step;
             }
 
             gui.insert_node(None, &leading_space_style)?;
 
-            let response = gui.insert_node(Some(thumb_uid), &thumb_style)?;
+            let mut thumb_style = Style::default();
+            let mut thumb = Button::default()
+                .with_uid(thumb_uid)
+                .with_classes(thumb_class);
+            if let Some(thumb_size_ratio) = self.thumb_size_ratio {
+                thumb_style = thumb_style
+                    .with_flex_ratio(thumb_size_ratio)
+                    .with_size_along_axis(self.axis, Sizing::Grow)
+                    .with_max_size_along_axis(self.axis, INITIAL_MAX_SIZE);
+                thumb = thumb.with_style(&thumb_style);
+            }
+            let response = gui.show(thumb)?;
             if response.clicked(MouseButtons::PRIMARY) {
                 let thumb_pos = gui
                     .get_previous_state(thumb_uid)
@@ -238,10 +278,10 @@ impl LeafWidgetData for ScrollBarData {
 
             gui.insert_node(None, &trailing_space_style)?;
 
-            if gui
-                .insert_text_node(Some(inc_button_uid), &button_style, ">")?
-                .clicked(MouseButtons::PRIMARY)
-            {
+            let inc_button = Button::default()
+                .with_uid(inc_button_uid)
+                .with_classes(button_class);
+            if gui.show(inc_button)?.clicked(MouseButtons::PRIMARY) {
                 value += step;
             }
 
@@ -309,10 +349,27 @@ impl ContainerWidgetData for ScrollViewData {
         let parent_style = gui.parent_style();
         let cascaded_style = style.cascade(parent_style);
 
+        // Obtain a sensible spacing from the scrollbar spacing since we do not
+        // want to use the spacing of the container
+        let scroll_bar_type_class = match self.axis {
+            Axis::X => ScrollBar::HORIZONTAL_TYPE_CLASS,
+            Axis::Y => ScrollBar::VERTICAL_TYPE_CLASS,
+        };
+        let scroll_bar_child_spacing = gui
+            .theme()
+            .build_style_property(
+                |style| &style.child_spacing,
+                None,
+                &[],
+                scroll_bar_type_class,
+            )
+            .cascade(&parent_style.child_spacing)
+            .unwrap_or(INITIAL_CHILD_SPACING);
+
         let scroll_view_style = style
             .with_layout_direction(self.axis.cross_direction())
             .with_initial_child_alignment()
-            .with_child_spacing(SCROLL_BAR_SPACING);
+            .with_child_spacing(scroll_bar_child_spacing * 2.0);
 
         let scroll_container_style = cascaded_style
             .as_style()
@@ -333,20 +390,20 @@ impl ContainerWidgetData for ScrollViewData {
                 .get_persistent_state(uid, self.axis.persistent_state_scroll_key())
                 .copied()
                 .unwrap_or_default();
+            let mut thumb_size_ratio = 0.5;
             let mut max_scroll = 0.px();
 
             let response =
                 gui.insert_container_node(Some(uid), &scroll_container_style, |gui| {
-                    max_scroll = if let Some(previous_state) = gui.get_previous_state(uid) {
+                    if let Some(previous_state) = gui.get_previous_state(uid) {
                         let padding = gui.computed_parent_style().padding().along_axis(self.axis);
-                        let available_size = previous_state.size.along_axis(self.axis)
-                            - padding[0]
-                            - padding[1]
-                            - previous_state.content_size.along_axis(self.axis);
-                        (-available_size).max(0.px())
-                    } else {
-                        0.px()
-                    };
+                        let container_size =
+                            previous_state.size.along_axis(self.axis) - padding[0] - padding[1];
+                        let content_size = previous_state.content_size.along_axis(self.axis);
+                        let available_size = container_size - content_size;
+                        thumb_size_ratio = container_size / content_size;
+                        max_scroll = (-available_size).max(0.px());
+                    }
 
                     contents(gui)
                 })?;
@@ -366,6 +423,7 @@ impl ContainerWidgetData for ScrollViewData {
                     .with_min(0.0)
                     .with_max(max_scroll.value())
                     .with_step((POINTS_PER_SCROLL_LINE * gui.scale_factor()).value())
+                    .with_thumb_size_ratio(thumb_size_ratio)
                     .with_style(&scroll_bar_style);
                 scroll = gui.show(scroll_bar)?.px();
             }

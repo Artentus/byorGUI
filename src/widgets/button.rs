@@ -40,7 +40,7 @@ impl WidgetData for ButtonData<'_> {
 }
 
 impl LeafWidgetData for ButtonData<'_> {
-    type ShowResult = bool;
+    type ShowResult = NodeInputState;
 
     fn show(
         self,
@@ -50,6 +50,6 @@ impl LeafWidgetData for ButtonData<'_> {
     ) -> WidgetResult<Self::ShowResult> {
         Ok(gui
             .insert_text_node(Some(uid.produce()), &style, self.text)?
-            .clicked(MouseButtons::PRIMARY))
+            .input_state)
     }
 }

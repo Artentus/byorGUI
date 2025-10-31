@@ -21,39 +21,54 @@ fn expand_field(field: &Field) -> TokenStream2 {
     {
         let field_type = &type_path.path.segments[0];
 
-        if let PathArguments::AngleBracketed(generic_arguments) = &field_type.arguments
-            && (generic_arguments.args.len() == 1)
-            && let GenericArgument::Type(inner_type) = &generic_arguments.args[0]
-        {
-            return quote_spanned! {
-                field.span() =>
-                #[must_use]
-                #[inline]
-                pub fn #initial_function_name(self) -> Self {
-                    Self {
-                        #field_name: Property::Initial,
-                        ..self
-                    }
-                }
+        if let PathArguments::AngleBracketed(generic_arguments) = &field_type.arguments {
+            let generic_type_count = generic_arguments
+                .args
+                .iter()
+                .filter(|arg| matches!(arg, GenericArgument::Type(_)))
+                .count();
 
-                #[must_use]
-                #[inline]
-                pub fn #inherit_function_name(self) -> Self {
-                    Self {
-                        #field_name: Property::Inherit,
-                        ..self
-                    }
-                }
+            if generic_type_count == 1 {
+                let inner_type = &generic_arguments
+                    .args
+                    .iter()
+                    .filter_map(|arg| match arg {
+                        GenericArgument::Type(inner_type) => Some(inner_type),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap();
 
-                #[must_use]
-                #[inline]
-                pub fn #with_function_name(self, #field_name: impl Into<#inner_type>) -> Self {
-                    Self {
-                        #field_name: Property::Value(#field_name.into()),
-                        ..self
+                return quote_spanned! {
+                    field.span() =>
+                    #[must_use]
+                    #[inline]
+                    pub fn #initial_function_name(self) -> Self {
+                        Self {
+                            #field_name: Property::Initial,
+                            ..self
+                        }
                     }
-                }
-            };
+
+                    #[must_use]
+                    #[inline]
+                    pub fn #inherit_function_name(self) -> Self {
+                        Self {
+                            #field_name: Property::Inherit,
+                            ..self
+                        }
+                    }
+
+                    #[must_use]
+                    #[inline]
+                    pub fn #with_function_name(self, #field_name: impl Into<#inner_type>) -> Self {
+                        Self {
+                            #field_name: Property::Value(#field_name.into()),
+                            ..self
+                        }
+                    }
+                };
+            }
         }
     }
 

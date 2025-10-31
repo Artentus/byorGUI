@@ -108,10 +108,28 @@ impl ComputedPadding {
 impl Style {
     #[must_use]
     #[inline]
+    pub fn size_along_axis(&self, axis: Axis) -> Property<Sizing, false> {
+        match axis {
+            Axis::X => self.width,
+            Axis::Y => self.height,
+        }
+    }
+
+    #[must_use]
+    #[inline]
     pub fn with_size_along_axis(self, axis: Axis, size: impl Into<Sizing>) -> Self {
         match axis {
             Axis::X => self.with_width(size),
             Axis::Y => self.with_height(size),
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn min_size_along_axis(&self, axis: Axis) -> Property<Measurement, false> {
+        match axis {
+            Axis::X => self.min_width,
+            Axis::Y => self.min_height,
         }
     }
 
@@ -126,10 +144,48 @@ impl Style {
 
     #[must_use]
     #[inline]
+    pub fn max_size_along_axis(&self, axis: Axis) -> Property<Measurement, false> {
+        match axis {
+            Axis::X => self.max_width,
+            Axis::Y => self.max_height,
+        }
+    }
+
+    #[must_use]
+    #[inline]
     pub fn with_max_size_along_axis(self, axis: Axis, size: impl Into<Measurement>) -> Self {
         match axis {
             Axis::X => self.with_max_width(size),
             Axis::Y => self.with_max_height(size),
+        }
+    }
+}
+
+impl CascadedStyle {
+    #[must_use]
+    #[inline]
+    pub fn size_along_axis(&self, axis: Axis) -> Sizing {
+        match axis {
+            Axis::X => self.width,
+            Axis::Y => self.height,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn min_size_along_axis(&self, axis: Axis) -> Measurement {
+        match axis {
+            Axis::X => self.min_width,
+            Axis::Y => self.min_height,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn max_size_along_axis(&self, axis: Axis) -> Measurement {
+        match axis {
+            Axis::X => self.max_width,
+            Axis::Y => self.max_height,
         }
     }
 }

@@ -6,6 +6,7 @@ use byor_gui_procmacro::StyleBuilder;
 use modular_bitfield::prelude::*;
 pub use parley::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
 use std::fmt;
+use std::ops::{Div, DivAssign, Mul, MulAssign};
 use std::sync::{Arc, LazyLock};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -59,6 +60,46 @@ impl Measurement {
             Measurement::Point(value) => value.to_pixel(pixel_per_point),
             Measurement::EM(value) => value.to_pixel(pixel_per_em),
         }
+    }
+}
+
+impl Mul<f32> for Measurement {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: f32) -> Self::Output {
+        match self {
+            Measurement::Pixel(value) => Measurement::Pixel(value * rhs),
+            Measurement::Point(value) => Measurement::Point(value * rhs),
+            Measurement::EM(value) => Measurement::EM(value * rhs),
+        }
+    }
+}
+
+impl MulAssign<f32> for Measurement {
+    #[inline]
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = *self * rhs;
+    }
+}
+
+impl Div<f32> for Measurement {
+    type Output = Self;
+
+    #[inline]
+    fn div(self, rhs: f32) -> Self::Output {
+        match self {
+            Measurement::Pixel(value) => Measurement::Pixel(value / rhs),
+            Measurement::Point(value) => Measurement::Point(value / rhs),
+            Measurement::EM(value) => Measurement::EM(value / rhs),
+        }
+    }
+}
+
+impl DivAssign<f32> for Measurement {
+    #[inline]
+    fn div_assign(&mut self, rhs: f32) {
+        *self = *self / rhs;
     }
 }
 
@@ -371,7 +412,7 @@ impl Default for PersistentFloatPosition {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Property<T> {
+pub enum Property<T, const INHERIT_FALLBACK: bool> {
     /// The property is not specified
     #[default]
     Unspecified,
@@ -383,7 +424,7 @@ pub enum Property<T> {
     Value(T),
 }
 
-impl<T> Property<T> {
+impl<T, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
     #[must_use]
     #[inline]
     pub fn unwrap_or(self, default: T) -> T {
@@ -404,7 +445,7 @@ impl<T> Property<T> {
 
     #[must_use]
     #[inline]
-    pub fn as_ref(&self) -> Property<&T> {
+    pub fn as_ref(&self) -> Property<&T, INHERIT_FALLBACK> {
         match self {
             Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
@@ -415,7 +456,7 @@ impl<T> Property<T> {
 
     #[must_use]
     #[inline]
-    pub fn as_mut(&mut self) -> Property<&mut T> {
+    pub fn as_mut(&mut self) -> Property<&mut T, INHERIT_FALLBACK> {
         match self {
             Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
@@ -425,10 +466,10 @@ impl<T> Property<T> {
     }
 }
 
-impl<T: Deref> Property<T> {
+impl<T: Deref, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
     #[must_use]
     #[inline]
-    pub fn as_deref(&self) -> Property<&<T as Deref>::Target> {
+    pub fn as_deref(&self) -> Property<&<T as Deref>::Target, INHERIT_FALLBACK> {
         match self {
             Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
@@ -438,10 +479,36 @@ impl<T: Deref> Property<T> {
     }
 }
 
-impl<T: Clone> Property<&T> {
+impl<T: Clone, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
     #[must_use]
     #[inline]
-    pub fn cloned(self) -> Property<T> {
+    pub fn or_else(self, other: &Self) -> Self {
+        if matches!(self, Self::Unspecified) {
+            other.clone()
+        } else {
+            self
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn cascade(self, parent_value: &T) -> Option<T> {
+        match self {
+            Self::Unspecified => match INHERIT_FALLBACK {
+                false => None,
+                true => Some(parent_value.clone()),
+            },
+            Self::Initial => None,
+            Self::Inherit => Some(parent_value.clone()),
+            Self::Value(value) => Some(value),
+        }
+    }
+}
+
+impl<T: Clone, const INHERIT_FALLBACK: bool> Property<&T, INHERIT_FALLBACK> {
+    #[must_use]
+    #[inline]
+    pub fn cloned(self) -> Property<T, INHERIT_FALLBACK> {
         match self {
             Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
@@ -451,10 +518,10 @@ impl<T: Clone> Property<&T> {
     }
 }
 
-impl<T: Copy> Property<&T> {
+impl<T: Copy, const INHERIT_FALLBACK: bool> Property<&T, INHERIT_FALLBACK> {
     #[must_use]
     #[inline]
-    pub fn copied(self) -> Property<T> {
+    pub fn copied(self) -> Property<T, INHERIT_FALLBACK> {
         match self {
             Self::Unspecified => Property::Unspecified,
             Self::Initial => Property::Initial,
@@ -464,7 +531,7 @@ impl<T: Copy> Property<&T> {
     }
 }
 
-impl<T> From<T> for Property<T> {
+impl<T, const INHERIT_FALLBACK: bool> From<T> for Property<T, INHERIT_FALLBACK> {
     #[inline]
     fn from(value: T) -> Self {
         Self::Value(value)
@@ -477,11 +544,22 @@ enum PropertyFallback {
     Inherit,
 }
 
+impl PropertyFallback {
+    #[must_use]
+    #[inline]
+    const fn is_inherit(self) -> bool {
+        match self {
+            Self::Initial => false,
+            Self::Inherit => true,
+        }
+    }
+}
+
 macro_rules! define_style {
     ($([$fallback_value:ident] $property_name:ident: $property_type:ty { $initial_value:expr },)*) => {
         #[derive(Debug, Clone, StyleBuilder)]
         pub struct Style {
-            $(pub $property_name: Property<$property_type>,)*
+            $(pub $property_name: Property<$property_type, { PropertyFallback::$fallback_value.is_inherit() }>,)*
         }
 
         #[derive(Debug, Clone)]
@@ -507,11 +585,7 @@ macro_rules! define_style {
             pub fn or_else(&self, other: &Self) -> Self {
                 Self {
                     $(
-                        $property_name: if matches!(&self.$property_name, Property::Unspecified) {
-                            other.$property_name.clone()
-                        } else {
-                            self.$property_name.clone()
-                        },
+                        $property_name: self.$property_name.clone().or_else(&other.$property_name),
                     )*
                 }
             }
@@ -541,17 +615,7 @@ macro_rules! define_style {
             pub fn cascade(&self, parent_style: &CascadedStyle) -> CascadedStyle {
                 CascadedStyle {
                     $(
-                        $property_name: match &self.$property_name {
-                            Property::Unspecified => {
-                                match PropertyFallback::$fallback_value {
-                                    PropertyFallback::Initial => $initial_value,
-                                    PropertyFallback::Inherit => parent_style.$property_name.clone(),
-                                }
-                            }
-                            Property::Initial => $initial_value,
-                            Property::Inherit => parent_style.$property_name.clone(),
-                            Property::Value(value) => value.clone(),
-                        },
+                        $property_name: self.$property_name.clone().cascade(&parent_style.$property_name).unwrap_or($initial_value),
                     )*
                 }
             }
@@ -572,30 +636,31 @@ macro_rules! define_style {
 
 const ROOT_FONT_SIZE: Float<Pixel> = Float::px(16.0);
 
-const INITIAL_SIZE: Sizing = Sizing::FitContent;
-const INITIAL_MIN_SIZE: Measurement = Measurement::Pixel(Float::px(0.0));
-const INITIAL_MAX_SIZE: Measurement = Measurement::Pixel(Float::px(f32::MAX));
-const INITIAL_FLEX_RATIO: f32 = 1.0;
-const INITIAL_PADDING: Padding = Padding::ZERO;
-const INITIAL_CHILD_SPACING: Measurement = Measurement::Pixel(Float::px(0.0));
-const INITIAL_LAYOUT_DIRECTION: Direction = Direction::LeftToRight;
-const INITIAL_ALIGNMENT: Alignment = Alignment::Start;
-const INITIAL_BACKGROUND: Color = Color::TRANSPARENT;
-const INITIAL_CORNER_RADIUS: Measurement = Measurement::Pixel(Float::px(0.0));
-const INITIAL_BORDER_WIDTH: Measurement = Measurement::Pixel(Float::px(0.0));
-const INITIAL_BORDER_COLOR: Color = Color::TRANSPARENT;
-const INITIAL_FONT_FAMILY: FontStack<'static> =
+pub const INITIAL_SIZE: Sizing = Sizing::FitContent;
+pub const INITIAL_MIN_SIZE: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_MAX_SIZE: Measurement = Measurement::Pixel(Float::px(f32::MAX));
+pub const INITIAL_FLEX_RATIO: f32 = 1.0;
+pub const INITIAL_PADDING: Padding = Padding::ZERO;
+pub const INITIAL_CHILD_SPACING: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_LAYOUT_DIRECTION: Direction = Direction::LeftToRight;
+pub const INITIAL_ALIGNMENT: Alignment = Alignment::Start;
+pub const INITIAL_BACKGROUND: Color = Color::TRANSPARENT;
+pub const INITIAL_CORNER_RADIUS: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_BORDER_WIDTH: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_BORDER_COLOR: Color = Color::TRANSPARENT;
+pub const INITIAL_FONT_FAMILY: FontStack<'static> =
     FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi));
-const INITIAL_FONT_SIZE: Measurement = Measurement::Pixel(ROOT_FONT_SIZE);
-const INITIAL_FONT_STYLE: FontStyle = FontStyle::Normal;
-const INITIAL_FONT_WEIGHT: FontWeight = FontWeight::NORMAL;
-const INITIAL_FONT_WIDTH: FontWidth = FontWidth::NORMAL;
-const INITIAL_TEXT_UNDERLINE: bool = false;
-const INITIAL_TEXT_STRIKETHROUGH: bool = false;
-const INITIAL_TEXT_WRAP: bool = true;
-const INITIAL_TEXT_COLOR: Color = Color::BLACK;
-const INITIAL_HORIZONTAL_TEXT_ALIGNMENT: HorizontalTextAlignment = HorizontalTextAlignment::Start;
-const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextAlignment::Top;
+pub const INITIAL_FONT_SIZE: Measurement = Measurement::Pixel(ROOT_FONT_SIZE);
+pub const INITIAL_FONT_STYLE: FontStyle = FontStyle::Normal;
+pub const INITIAL_FONT_WEIGHT: FontWeight = FontWeight::NORMAL;
+pub const INITIAL_FONT_WIDTH: FontWidth = FontWidth::NORMAL;
+pub const INITIAL_TEXT_UNDERLINE: bool = false;
+pub const INITIAL_TEXT_STRIKETHROUGH: bool = false;
+pub const INITIAL_TEXT_WRAP: bool = true;
+pub const INITIAL_TEXT_COLOR: Color = Color::BLACK;
+pub const INITIAL_HORIZONTAL_TEXT_ALIGNMENT: HorizontalTextAlignment =
+    HorizontalTextAlignment::Start;
+pub const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextAlignment::Top;
 
 define_style! {
     [Initial] width: Sizing { INITIAL_SIZE },

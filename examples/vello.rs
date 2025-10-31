@@ -322,14 +322,56 @@ fn create_theme(theme: &mut Theme) {
     theme.insert_style(
         ScrollBar::HORIZONTAL_TYPE_CLASS,
         &style! {
+            width: Sizing::Grow,
+            height: 20.pt(),
             padding: 0.px(),
+            child_spacing: 1.pt(),
         },
     );
 
     theme.insert_style(
         ScrollBar::VERTICAL_TYPE_CLASS,
         &style! {
+            width: 20.pt(),
+            height: Sizing::Grow,
             padding: 0.px(),
+            child_spacing: 1.pt(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::HORIZONTAL_BUTTON_CLASS,
+        &style! {
+            width: 20.pt(),
+            height: 20.pt(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::VERTICAL_BUTTON_CLASS,
+        &style! {
+            width: 20.pt(),
+            height: 20.pt(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::HORIZONTAL_THUMB_CLASS,
+        &style! {
+            width: Sizing::Grow,
+            height: 20.pt(),
+            min_width: 20.pt(),
+            max_width: 60.pt(),
+        },
+    );
+
+    theme.insert_style(
+        ScrollBar::VERTICAL_THUMB_CLASS,
+        &style! {
+            width: 20.pt(),
+            height: Sizing::Grow,
+            min_height: 20.pt(),
+            max_height: 60.pt(),
         },
     );
 

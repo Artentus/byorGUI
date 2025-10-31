@@ -42,4 +42,30 @@ impl Theme {
 
         style
     }
+
+    pub fn build_style_property<T: Clone, const INHERIT_FALLBACK: bool>(
+        &self,
+        select_property: impl Fn(&Style) -> &Property<T, INHERIT_FALLBACK>,
+        explicit_style: Option<&Style>,
+        custom_classes: &[StyleClass],
+        widget_class: StyleClass,
+    ) -> Property<T, INHERIT_FALLBACK> {
+        let mut property = select_property(explicit_style.unwrap_or(&Style::DEFAULT)).clone();
+
+        for custom_class in custom_classes {
+            if let Some(class_style) = self.styles.get(custom_class) {
+                property = property.or_else(select_property(class_style));
+            }
+        }
+
+        if let Some(class_style) = self.styles.get(&widget_class) {
+            property = property.or_else(select_property(class_style));
+        }
+
+        if let Some(class_style) = self.styles.get(&Self::UNIVERSAL_CLASS) {
+            property = property.or_else(select_property(class_style));
+        }
+
+        property
+    }
 }

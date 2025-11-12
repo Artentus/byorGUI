@@ -63,7 +63,7 @@ impl Renderer for vello::Scene {
         stroke_width: Float<Pixel>,
         color: Color,
     ) -> RenderResult<()> {
-        if color.a > 0 {
+        if (color.a > 0) && (stroke_width.value() > 0.0) {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
 

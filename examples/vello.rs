@@ -293,6 +293,9 @@ fn create_theme(theme: &mut Theme) {
         &style! {
             padding: 5.pt(),
             child_spacing: 5.pt(),
+            border_color: Color { r: 192, g: 192, b: 192, a: 255 },
+            border_width: 1.0.pt(),
+            corner_radius: 5.0.pt(),
         },
     );
 
@@ -300,6 +303,35 @@ fn create_theme(theme: &mut Theme) {
         Theme::ROOT_TYPE_CLASS,
         &style! {
             font_size: 16.pt(),
+            background: Color { r: 48, g: 48, b: 48, a: 255 },
+            border_width: 0.0.pt(),
+            corner_radius: 0.0.pt(),
+            text_color: Color { r: 224, g: 224, b: 224, a: 255 },
+        },
+    );
+
+    theme.insert_style(
+        Label::TYPE_CLASS,
+        &style! {
+            border_width: 0.0.pt(),
+            corner_radius: 0.0.pt(),
+        },
+    );
+
+    let button_background: PropertyFn<Color> = |_, input_state| {
+        if input_state.pressed(MouseButtons::PRIMARY) {
+            Color::greyscale(96)
+        } else if input_state.is_hovered() {
+            Color::greyscale(80)
+        } else {
+            Color::greyscale(64)
+        }
+    };
+
+    theme.insert_style(
+        Button::TYPE_CLASS,
+        &style! {
+            background: button_background,
         },
     );
 
@@ -318,6 +350,8 @@ fn create_theme(theme: &mut Theme) {
             height: 20.pt(),
             padding: 0.px(),
             child_spacing: 1.pt(),
+            border_width: 0.0.px(),
+            background: Color { r: 32, g: 32, b: 32, a: 255 },
         },
     );
 
@@ -328,6 +362,8 @@ fn create_theme(theme: &mut Theme) {
             height: Sizing::Grow,
             padding: 0.px(),
             child_spacing: 1.pt(),
+            border_width: 0.0.px(),
+            background: Color { r: 32, g: 32, b: 32, a: 255 },
         },
     );
 
@@ -336,6 +372,7 @@ fn create_theme(theme: &mut Theme) {
         &style! {
             width: 20.pt(),
             height: 20.pt(),
+            background: button_background,
         },
     );
 
@@ -344,6 +381,7 @@ fn create_theme(theme: &mut Theme) {
         &style! {
             width: 20.pt(),
             height: 20.pt(),
+            background: button_background,
         },
     );
 
@@ -354,6 +392,7 @@ fn create_theme(theme: &mut Theme) {
             height: 20.pt(),
             min_width: 20.pt(),
             max_width: 60.pt(),
+            background: button_background,
         },
     );
 
@@ -364,6 +403,7 @@ fn create_theme(theme: &mut Theme) {
             height: Sizing::Grow,
             min_height: 20.pt(),
             max_height: 60.pt(),
+            background: button_background,
         },
     );
 
@@ -389,6 +429,13 @@ fn create_theme(theme: &mut Theme) {
             layout_direction: Direction::TopToBottom,
         },
     );
+
+    theme.insert_style(
+        Popup::TYPE_CLASS,
+        &style! {
+            background: Color { r: 40, g: 40, b: 40, a: 255 },
+        },
+    );
 }
 
 fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> WidgetResult<()> {
@@ -400,6 +447,9 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     &style! {
                         width: 100.pt(),
                         height: 100.pt(),
+                        border_width: 1.0.pt(),
+                        border_color: %inherit,
+                        corner_radius: 5.0.pt(),
                     },
                     None,
                 )?;
@@ -418,6 +468,9 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                 &style! {
                     width: 100.pt(),
                     height: 100.pt(),
+                    border_width: 1.0.pt(),
+                    border_color: %inherit,
+                    corner_radius: 5.0.pt(),
                 },
                 None,
             )?;
@@ -464,6 +517,9 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     width: 100.pt(),
                     height: 100.pt(),
                     cross_axis_alignment: Alignment::Center,
+                    border_width: 1.0.pt(),
+                    border_color: %inherit,
+                    corner_radius: 5.0.pt(),
                 },
                 |mut gui| {
                     if gui.parent_input_state().clicked(MouseButtons::SECONDARY) {

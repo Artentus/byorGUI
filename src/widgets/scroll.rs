@@ -389,7 +389,9 @@ impl ContainerWidgetData for ScrollViewData {
                 .with_initial_max_height()
                 .with_initial_flex_ratio()
                 .with_padding(Padding::ZERO)
-                .with_initial_cross_axis_alignment();
+                .with_initial_cross_axis_alignment()
+                .with_border_width(0.0.px())
+                .with_background(Color::TRANSPARENT);
 
             let mut scroll: Float<Pixel> = gui
                 .persistent_state(uid)

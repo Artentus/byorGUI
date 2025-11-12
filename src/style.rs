@@ -467,9 +467,7 @@ impl<T, const INHERIT_FALLBACK: bool> From<T> for Property<T, INHERIT_FALLBACK> 
     }
 }
 
-impl<T, const INHERIT_FALLBACK: bool> From<PropertyFn<T>>
-    for Property<T, INHERIT_FALLBACK>
-{
+impl<T, const INHERIT_FALLBACK: bool> From<PropertyFn<T>> for Property<T, INHERIT_FALLBACK> {
     #[inline]
     fn from(f: PropertyFn<T>) -> Self {
         Self::Compute(f)
@@ -641,6 +639,38 @@ define_style! {
     [Inherit] vertical_text_alignment: VerticalTextAlignment { INITIAL_VERTICAL_TEXT_ALIGNMENT },
 }
 
+/// This type is a hack to help the compiler perform double type conversions in the style macro.
+#[doc(hidden)]
+pub enum _PropertyValue<T, I: Into<T>> {
+    Value(I),
+    Compute(PropertyFn<T>),
+}
+
+impl<T, I: Into<T>> From<I> for _PropertyValue<T, I> {
+    #[inline]
+    fn from(value: I) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl<T> From<PropertyFn<T>> for _PropertyValue<T, T> {
+    #[inline]
+    fn from(f: PropertyFn<T>) -> Self {
+        Self::Compute(f)
+    }
+}
+
+impl<T, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
+    #[doc(hidden)]
+    #[inline]
+    pub fn _from_value<I: Into<T>>(value: _PropertyValue<T, I>) -> Self {
+        match value {
+            _PropertyValue::Value(value) => Self::Value(value.into()),
+            _PropertyValue::Compute(f) => Self::Compute(f),
+        }
+    }
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __style_recursive {
@@ -651,7 +681,7 @@ macro_rules! __style_recursive {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Inherit); $($t)*)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: $value:expr, $($t:tt)*) => {
-        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value.into())); $($t)*)
+        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::_from_value($value.into())); $($t)*)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: %initial) => {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Initial);)
@@ -660,7 +690,7 @@ macro_rules! __style_recursive {
         $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Inherit);)
     };
     ($(($parsed_name:ident, $parsed_property:expr)),*; $name:ident: $value:expr) => {
-        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::Value($value.into()));)
+        $crate::__style_recursive!($(($parsed_name, $parsed_property),)* ($name, $crate::style::Property::_from_value($value.into()));)
     };
     ($(($name:ident, $property:expr)),*;) => {
         $crate::style::Style {

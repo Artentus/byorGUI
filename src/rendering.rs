@@ -44,16 +44,8 @@ pub type NodeContentRenderer = fn(RenderContext) -> RenderResult<()>;
 fn draw_tree<R: Renderer>(
     tree: TreeRef<'_, Node, Shared>,
     data: &ByorGuiData,
-    depth: usize,
     renderer: &mut R,
 ) -> RenderResult<()> {
-    const LAYER_COLORS: &[Color] = &[
-        Color::rgb(10, 110, 137),
-        Color::rgb(253, 147, 141),
-        Color::rgb(128, 73, 254),
-        Color::rgb(254, 216, 77),
-    ];
-
     let TreeRef {
         parent: node,
         descendants,
@@ -63,8 +55,16 @@ fn draw_tree<R: Renderer>(
     renderer.fill_rect(
         node.position,
         node.style.fixed_size,
-        5.px(),
-        LAYER_COLORS[depth],
+        node.style.corner_radius(),
+        node.style.background(),
+    )?;
+
+    renderer.draw_rect(
+        node.position + node.style.border_width() * 0.5,
+        node.style.fixed_size - node.style.border_width(),
+        node.style.corner_radius(),
+        node.style.border_width(),
+        node.style.border_color(),
     )?;
 
     let (clip_position, clip_size) = node.clip_bounds();
@@ -110,7 +110,7 @@ fn draw_tree<R: Renderer>(
             continue;
         }
 
-        draw_tree(subtree, data, depth + 1, renderer)?;
+        draw_tree(subtree, data, renderer)?;
     });
 
     renderer.pop_clip_rect()?;
@@ -121,7 +121,7 @@ impl ByorGui {
     pub fn render<R: Renderer>(&mut self, renderer: &mut R) -> RenderResult<()> {
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
-            draw_tree(tree, &self.data, 0, renderer)?;
+            draw_tree(tree, &self.data, renderer)?;
         }
 
         Ok(())

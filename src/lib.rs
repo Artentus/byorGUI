@@ -20,7 +20,6 @@ use smallbox::smallbox;
 use std::any::Any;
 use std::fmt;
 use std::hash::Hasher;
-use std::ops::Deref;
 use style::computed::*;
 use style::*;
 use theme::Theme;
@@ -496,11 +495,12 @@ impl ByorGui {
         self.data.scale_factor = scale_factor;
         self.data.input_state.update(mouse_state);
 
+        let input_state = NodeInputState::default();
         let root_style = self
             .data
             .theme
             .build_style(None, &[], Theme::ROOT_TYPE_CLASS);
-        let cascaded_style = root_style.cascade_root(screen_size);
+        let cascaded_style = root_style.cascade_root(screen_size, input_state);
         let computed_style = compute_style(&root_style, &cascaded_style, None, scale_factor);
         let primary_builder = self
             .forest
@@ -510,7 +510,7 @@ impl ByorGui {
             builder: primary_builder,
             data: &mut self.data,
             parent_style: cascaded_style,
-            parent_input_state: NodeInputState::default(),
+            parent_input_state: input_state,
         }
     }
 
@@ -755,14 +755,14 @@ impl ByorGuiContext<'_> {
         renderer: Option<rendering::NodeContentRenderer>,
         is_root: bool,
     ) -> widgets::WidgetResult<ByorGuiContext<'gui>> {
-        let cascaded_style = style.cascade(&self.parent_style);
+        let input_state = self.compute_node_input_state(uid);
+        let cascaded_style = style.cascade(&self.parent_style, input_state);
         let computed_style = compute_style(
             style,
             &cascaded_style,
             Some(&self.builder.parent_node().style),
             self.data.scale_factor,
         );
-        let input_state = self.compute_node_input_state(uid);
         let builder = self
             .builder
             .insert(Node::new(uid, computed_style, renderer), is_root);

@@ -346,7 +346,7 @@ pub(crate) fn compute_style(
                 Arc::clone(&*INITIAL_COMPUTED_PADDING)
             }
         }
-        Property::Value(_) => Arc::new(
+        Property::Value(_) | Property::Compute(_) => Arc::new(
             cascaded_style
                 .padding
                 .compute(scale_factor, font_size.value()),

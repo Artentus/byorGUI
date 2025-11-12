@@ -411,7 +411,9 @@ impl Default for PersistentFloatPosition {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub type PropertyFn<T> = fn(&CascadedStyle, NodeInputState) -> T;
+
+#[derive(Debug, Default, Clone, Copy)]
 pub enum Property<T, const INHERIT_FALLBACK: bool> {
     /// The property is not specified
     #[default]
@@ -422,61 +424,8 @@ pub enum Property<T, const INHERIT_FALLBACK: bool> {
     Inherit,
     /// A specific value
     Value(T),
-}
-
-impl<T, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
-    #[must_use]
-    #[inline]
-    pub fn unwrap_or(self, default: T) -> T {
-        match self {
-            Self::Unspecified | Self::Initial | Self::Inherit => default,
-            Self::Value(value) => value,
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
-        match self {
-            Self::Unspecified | Self::Initial | Self::Inherit => f(),
-            Self::Value(value) => value,
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn as_ref(&self) -> Property<&T, INHERIT_FALLBACK> {
-        match self {
-            Self::Unspecified => Property::Unspecified,
-            Self::Initial => Property::Initial,
-            Self::Inherit => Property::Inherit,
-            Self::Value(value) => Property::Value(value),
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn as_mut(&mut self) -> Property<&mut T, INHERIT_FALLBACK> {
-        match self {
-            Self::Unspecified => Property::Unspecified,
-            Self::Initial => Property::Initial,
-            Self::Inherit => Property::Inherit,
-            Self::Value(value) => Property::Value(value),
-        }
-    }
-}
-
-impl<T: Deref, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
-    #[must_use]
-    #[inline]
-    pub fn as_deref(&self) -> Property<&<T as Deref>::Target, INHERIT_FALLBACK> {
-        match self {
-            Self::Unspecified => Property::Unspecified,
-            Self::Initial => Property::Initial,
-            Self::Inherit => Property::Inherit,
-            Self::Value(value) => Property::Value(value.deref()),
-        }
-    }
+    /// Compute the value using a custom function
+    Compute(PropertyFn<T>),
 }
 
 impl<T: Clone, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
@@ -492,7 +441,12 @@ impl<T: Clone, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
 
     #[must_use]
     #[inline]
-    pub fn cascade(self, parent_value: &T) -> Option<T> {
+    pub fn cascade(
+        self,
+        parent_value: &T,
+        parent_style: &CascadedStyle,
+        input_state: NodeInputState,
+    ) -> Option<T> {
         match self {
             Self::Unspecified => match INHERIT_FALLBACK {
                 false => None,
@@ -501,32 +455,7 @@ impl<T: Clone, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
             Self::Initial => None,
             Self::Inherit => Some(parent_value.clone()),
             Self::Value(value) => Some(value),
-        }
-    }
-}
-
-impl<T: Clone, const INHERIT_FALLBACK: bool> Property<&T, INHERIT_FALLBACK> {
-    #[must_use]
-    #[inline]
-    pub fn cloned(self) -> Property<T, INHERIT_FALLBACK> {
-        match self {
-            Self::Unspecified => Property::Unspecified,
-            Self::Initial => Property::Initial,
-            Self::Inherit => Property::Inherit,
-            Self::Value(value) => Property::Value(value.clone()),
-        }
-    }
-}
-
-impl<T: Copy, const INHERIT_FALLBACK: bool> Property<&T, INHERIT_FALLBACK> {
-    #[must_use]
-    #[inline]
-    pub fn copied(self) -> Property<T, INHERIT_FALLBACK> {
-        match self {
-            Self::Unspecified => Property::Unspecified,
-            Self::Initial => Property::Initial,
-            Self::Inherit => Property::Inherit,
-            Self::Value(value) => Property::Value(*value),
+            Self::Compute(f) => Some(f(parent_style, input_state)),
         }
     }
 }
@@ -535,6 +464,15 @@ impl<T, const INHERIT_FALLBACK: bool> From<T> for Property<T, INHERIT_FALLBACK> 
     #[inline]
     fn from(value: T) -> Self {
         Self::Value(value)
+    }
+}
+
+impl<T, const INHERIT_FALLBACK: bool> From<PropertyFn<T>>
+    for Property<T, INHERIT_FALLBACK>
+{
+    #[inline]
+    fn from(f: PropertyFn<T>) -> Self {
+        Self::Compute(f)
     }
 }
 
@@ -580,6 +518,12 @@ macro_rules! define_style {
             }
         }
 
+        impl CascadedStyle {
+            pub const INITIAL: Self = Self {
+                $($property_name: $initial_value,)*
+            };
+        }
+
         impl Style {
             #[must_use]
             pub fn or_else(&self, other: &Self) -> Self {
@@ -591,12 +535,13 @@ macro_rules! define_style {
             }
 
             #[must_use]
-            pub fn cascade_root(&self, screen_size: Vec2<Pixel>) -> CascadedStyle {
+            pub fn cascade_root(&self, screen_size: Vec2<Pixel>, input_state: NodeInputState) -> CascadedStyle {
                 let mut style = CascadedStyle {
                     $(
                         $property_name: match &self.$property_name {
                             Property::Unspecified | Property::Initial | Property::Inherit => $initial_value,
                             Property::Value(value) => value.clone(),
+                            Property::Compute(f) => f(&CascadedStyle::INITIAL, input_state),
                         },
                     )*
                 };
@@ -612,10 +557,14 @@ macro_rules! define_style {
             }
 
             #[must_use]
-            pub fn cascade(&self, parent_style: &CascadedStyle) -> CascadedStyle {
+            pub fn cascade(&self, parent_style: &CascadedStyle, input_state: NodeInputState) -> CascadedStyle {
                 CascadedStyle {
                     $(
-                        $property_name: self.$property_name.clone().cascade(&parent_style.$property_name).unwrap_or($initial_value),
+                        $property_name: self
+                            .$property_name
+                            .clone()
+                            .cascade(&parent_style.$property_name, &parent_style, input_state)
+                            .unwrap_or($initial_value),
                     )*
                 }
             }

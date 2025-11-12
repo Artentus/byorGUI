@@ -346,8 +346,7 @@ impl ContainerWidgetData for ScrollViewData {
     ) -> WidgetResult<Self::ShowResult<R>> {
         let uid = uid.produce();
 
-        let parent_style = gui.parent_style();
-        let cascaded_style = style.cascade(parent_style);
+        let parent_style = gui.parent_style().clone();
 
         // Obtain a sensible spacing from the scrollbar spacing since we do not
         // want to use the spacing of the container
@@ -363,29 +362,35 @@ impl ContainerWidgetData for ScrollViewData {
                 &[],
                 scroll_bar_type_class,
             )
-            .cascade(&parent_style.child_spacing)
+            .cascade(
+                &parent_style.child_spacing,
+                &parent_style,
+                gui.parent_input_state(),
+            )
             .unwrap_or(INITIAL_CHILD_SPACING);
 
         let scroll_view_style = style
+            .clone()
             .with_layout_direction(self.axis.cross_direction())
             .with_initial_child_alignment()
             .with_child_spacing(scroll_bar_child_spacing * 2.0);
 
-        let scroll_container_style = cascaded_style
-            .as_style()
-            .with_width(Sizing::Grow)
-            .with_height(Sizing::Grow)
-            .with_initial_min_width()
-            .with_initial_min_height()
-            .with_initial_max_width()
-            .with_initial_max_height()
-            .with_initial_flex_ratio()
-            .with_padding(Padding::ZERO)
-            .with_initial_cross_axis_alignment();
-
         let scroll_bar_style = Style::default().with_size_along_axis(self.axis, Sizing::Grow);
 
         gui.insert_container_node(None, &scroll_view_style, |mut gui| {
+            let cascaded_style = style.cascade(&parent_style, gui.parent_input_state());
+            let scroll_container_style = cascaded_style
+                .as_style()
+                .with_width(Sizing::Grow)
+                .with_height(Sizing::Grow)
+                .with_initial_min_width()
+                .with_initial_min_height()
+                .with_initial_max_width()
+                .with_initial_max_height()
+                .with_initial_flex_ratio()
+                .with_padding(Padding::ZERO)
+                .with_initial_cross_axis_alignment();
+
             let mut scroll: Float<Pixel> = gui
                 .persistent_state(uid)
                 .get(self.axis.persistent_state_scroll_key())

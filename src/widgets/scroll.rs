@@ -196,7 +196,7 @@ impl LeafWidgetData for ScrollBarData {
                 value -= step;
             }
 
-            gui.insert_node(None, &leading_space_style)?;
+            gui.insert_node(None, &leading_space_style, None)?;
 
             let mut thumb_style = Style::default();
             let mut thumb = Button::default()
@@ -212,21 +212,20 @@ impl LeafWidgetData for ScrollBarData {
             let response = gui.show(thumb)?;
             if response.clicked(MouseButtons::PRIMARY) {
                 let thumb_pos = gui
-                    .get_previous_state(thumb_uid)
+                    .previous_state(thumb_uid)
                     .map(|state| state.position.along_axis(self.axis))
                     .unwrap_or_default();
+                let thumb_offset = gui
+                    .global_input_state()
+                    .mouse_position()
+                    .along_axis(self.axis)
+                    - thumb_pos;
 
-                gui.insert_persistent_state(
-                    uid,
-                    PersistentStateKey::ScrollBarThumbMouseOffset,
-                    gui.global_input_state()
-                        .mouse_position()
-                        .along_axis(self.axis)
-                        - thumb_pos,
-                );
+                gui.persistent_state_mut(uid)
+                    .insert(PersistentStateKey::ScrollBarThumbMouseOffset, thumb_offset);
             } else if response.pressed(MouseButtons::PRIMARY) {
                 let (scroll_bar_pos, scroll_bar_size) = gui
-                    .get_previous_state(uid)
+                    .previous_state(uid)
                     .map(|state| {
                         (
                             state.position.along_axis(self.axis),
@@ -235,19 +234,20 @@ impl LeafWidgetData for ScrollBarData {
                     })
                     .unwrap_or_default();
                 let left_button_size = gui
-                    .get_previous_state(dec_button_uid)
+                    .previous_state(dec_button_uid)
                     .map(|state| state.size.along_axis(self.axis))
                     .unwrap_or_default();
                 let right_button_size = gui
-                    .get_previous_state(inc_button_uid)
+                    .previous_state(inc_button_uid)
                     .map(|state| state.size.along_axis(self.axis))
                     .unwrap_or_default();
                 let thumb_size = gui
-                    .get_previous_state(thumb_uid)
+                    .previous_state(thumb_uid)
                     .map(|state| state.size.along_axis(self.axis))
                     .unwrap_or_default();
                 let thumb_mouse_offset: Float<Pixel> = gui
-                    .get_persistent_state(uid, PersistentStateKey::ScrollBarThumbMouseOffset)
+                    .persistent_state(uid)
+                    .get(PersistentStateKey::ScrollBarThumbMouseOffset)
                     .copied()
                     .unwrap_or(thumb_size / 2.0);
 
@@ -276,7 +276,7 @@ impl LeafWidgetData for ScrollBarData {
                 value = (scroll_position / scroll_space) * (self.max - self.min);
             }
 
-            gui.insert_node(None, &trailing_space_style)?;
+            gui.insert_node(None, &trailing_space_style, None)?;
 
             let inc_button = Button::default()
                 .with_uid(inc_button_uid)
@@ -387,7 +387,8 @@ impl ContainerWidgetData for ScrollViewData {
 
         gui.insert_container_node(None, &scroll_view_style, |mut gui| {
             let mut scroll: Float<Pixel> = gui
-                .get_persistent_state(uid, self.axis.persistent_state_scroll_key())
+                .persistent_state(uid)
+                .get(self.axis.persistent_state_scroll_key())
                 .copied()
                 .unwrap_or_default();
             let mut thumb_size_ratio = 0.5;
@@ -395,7 +396,7 @@ impl ContainerWidgetData for ScrollViewData {
 
             let response =
                 gui.insert_container_node(Some(uid), &scroll_container_style, |gui| {
-                    if let Some(previous_state) = gui.get_previous_state(uid) {
+                    if let Some(previous_state) = gui.previous_state(uid) {
                         let padding = gui.computed_parent_style().padding().along_axis(self.axis);
                         let container_size =
                             previous_state.size.along_axis(self.axis) - padding[0] - padding[1];
@@ -428,7 +429,8 @@ impl ContainerWidgetData for ScrollViewData {
                 scroll = gui.show(scroll_bar)?.px();
             }
 
-            gui.insert_persistent_state(uid, self.axis.persistent_state_scroll_key(), scroll);
+            gui.persistent_state_mut(uid)
+                .insert(self.axis.persistent_state_scroll_key(), scroll);
 
             Ok(response.result)
         })?

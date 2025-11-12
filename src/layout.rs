@@ -13,8 +13,7 @@ fn scroll_along_axis(
     };
 
     persistent_state
-        .and_then(|persistent_state| persistent_state.get(&key))
-        .and_then(|scroll| scroll.downcast_ref::<Float<Pixel>>())
+        .and_then(|persistent_state| persistent_state.get::<Float<Pixel>>(key))
         .copied()
 }
 

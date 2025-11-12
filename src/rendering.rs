@@ -4,16 +4,12 @@ pub use parley::Style as TextStyle;
 pub use parley::fontique::Synthesis;
 pub use parley::{Cluster, Decoration, FontData, Glyph, GlyphRun, Run, RunMetrics};
 
+pub type RenderResult<T> = anyhow::Result<T>;
+
 pub trait Renderer {
-    type Error;
+    fn push_clip_rect(&mut self, position: Vec2<Pixel>, size: Vec2<Pixel>) -> RenderResult<()>;
 
-    fn push_clip_rect(
-        &mut self,
-        position: Vec2<Pixel>,
-        size: Vec2<Pixel>,
-    ) -> Result<(), Self::Error>;
-
-    fn pop_clip_rect(&mut self) -> Result<(), Self::Error>;
+    fn pop_clip_rect(&mut self) -> RenderResult<()>;
 
     fn draw_rect(
         &mut self,
@@ -22,7 +18,7 @@ pub trait Renderer {
         corner_radius: Float<Pixel>,
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> Result<(), Self::Error>;
+    ) -> RenderResult<()>;
 
     fn fill_rect(
         &mut self,
@@ -30,21 +26,27 @@ pub trait Renderer {
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
         color: Color,
-    ) -> Result<(), Self::Error>;
+    ) -> RenderResult<()>;
 
-    fn draw_text(
-        &mut self,
-        text: GlyphRun<'_, Color>,
-        position: Vec2<Pixel>,
-    ) -> Result<(), Self::Error>;
+    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2<Pixel>) -> RenderResult<()>;
 }
+
+pub struct RenderContext<'a> {
+    pub position: Vec2<Pixel>,
+    pub size: Vec2<Pixel>,
+    pub style: &'a ComputedStyle,
+    pub persistent_state: Option<&'a PersistentState>,
+    pub renderer: &'a mut dyn Renderer,
+}
+
+pub type NodeContentRenderer = fn(RenderContext) -> RenderResult<()>;
 
 fn draw_tree<R: Renderer>(
     tree: TreeRef<'_, Node, Shared>,
     data: &ByorGuiData,
     depth: usize,
     renderer: &mut R,
-) -> Result<(), R::Error> {
+) -> RenderResult<()> {
     const LAYER_COLORS: &[Color] = &[
         Color::rgb(10, 110, 137),
         Color::rgb(253, 147, 141),
@@ -91,6 +93,18 @@ fn draw_tree<R: Renderer>(
         }
     }
 
+    if let Some(node_renderer) = node.renderer {
+        let context = RenderContext {
+            position: node.position,
+            size: node.style.fixed_size,
+            style: &node.style,
+            persistent_state: node.uid.and_then(|uid| data.persistent_state.get(uid)),
+            renderer,
+        };
+
+        node_renderer(context)?;
+    }
+
     iter_subtrees!(descendants => |subtree| {
         if subtree.is_root {
             continue;
@@ -104,7 +118,7 @@ fn draw_tree<R: Renderer>(
 }
 
 impl ByorGui {
-    pub fn render<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Error> {
+    pub fn render<R: Renderer>(&mut self, renderer: &mut R) -> RenderResult<()> {
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
             draw_tree(tree, &self.data, 0, renderer)?;

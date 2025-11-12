@@ -62,14 +62,6 @@ impl ExampleApp {
     }
 }
 
-macro_rules! infallible {
-    ($e:expr) => {
-        match $e {
-            Ok(result) => result,
-        }
-    };
-}
-
 impl winit::application::ApplicationHandler for ExampleApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         use vello::AaSupport;
@@ -244,7 +236,7 @@ impl winit::application::ApplicationHandler for ExampleApp {
                     self.mouse_state.scroll_delta = Vec2::ZERO;
 
                     let mut scene = Scene::new();
-                    infallible!(self.gui.render(&mut scene));
+                    self.gui.render(&mut scene).unwrap();
 
                     let device_handle = &self.context.devices[surface.dev_id];
                     let render_params = RenderParams {
@@ -409,6 +401,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                         width: 100.pt(),
                         height: 100.pt(),
                     },
+                    None,
                 )?;
 
                 Ok(())
@@ -426,6 +419,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     width: 100.pt(),
                     height: 100.pt(),
                 },
+                None,
             )?;
         }
 
@@ -443,6 +437,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                 width: Sizing::Grow,
                 height: 100.pt(),
             },
+            None,
         )?;
 
         let style = style! {

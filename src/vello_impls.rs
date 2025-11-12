@@ -42,20 +42,14 @@ impl From<Color> for AlphaColor<Srgb> {
 }
 
 impl Renderer for vello::Scene {
-    type Error = std::convert::Infallible;
-
-    fn push_clip_rect(
-        &mut self,
-        position: Vec2<Pixel>,
-        size: Vec2<Pixel>,
-    ) -> Result<(), Self::Error> {
+    fn push_clip_rect(&mut self, position: Vec2<Pixel>, size: Vec2<Pixel>) -> RenderResult<()> {
         let rect = Rect::from_origin_size(position, size);
         self.push_clip_layer(Affine::IDENTITY, &rect);
 
         Ok(())
     }
 
-    fn pop_clip_rect(&mut self) -> Result<(), Self::Error> {
+    fn pop_clip_rect(&mut self) -> RenderResult<()> {
         self.pop_layer();
 
         Ok(())
@@ -68,7 +62,7 @@ impl Renderer for vello::Scene {
         corner_radius: Float<Pixel>,
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> Result<(), Self::Error> {
+    ) -> RenderResult<()> {
         if color.a > 0 {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
@@ -101,7 +95,7 @@ impl Renderer for vello::Scene {
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
         color: Color,
-    ) -> Result<(), Self::Error> {
+    ) -> RenderResult<()> {
         if color.a > 0 {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
@@ -122,11 +116,7 @@ impl Renderer for vello::Scene {
         Ok(())
     }
 
-    fn draw_text(
-        &mut self,
-        text: GlyphRun<'_, Color>,
-        position: Vec2<Pixel>,
-    ) -> Result<(), Self::Error> {
+    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2<Pixel>) -> RenderResult<()> {
         let style = text.style();
         let transform = Affine::translate(position);
 

@@ -60,7 +60,8 @@ impl ContainerWidgetData for PopupData<'_> {
 
             //  If this is the first frame the popup opened, do not immediately close it
             let previous_open = gui
-                .get_persistent_state::<bool>(uid, PersistentStateKey::PreviousPopupState)
+                .persistent_state(uid)
+                .get::<bool>(PersistentStateKey::PreviousPopupState)
                 .copied()
                 .unwrap_or(false);
 
@@ -76,7 +77,8 @@ impl ContainerWidgetData for PopupData<'_> {
             None
         };
 
-        gui.insert_persistent_state(uid, PersistentStateKey::PreviousPopupState, *self.open);
+        gui.persistent_state_mut(uid)
+            .insert(PersistentStateKey::PreviousPopupState, *self.open);
 
         Ok(result)
     }

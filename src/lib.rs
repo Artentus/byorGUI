@@ -189,16 +189,22 @@ struct Node {
     text_layout: Option<TextLayoutId>,
     position: Vec2<Pixel>,
     vertical_text_offset: Float<Pixel>,
+    renderer: Option<rendering::NodeContentRenderer>,
 }
 
 impl Node {
-    fn new(uid: Option<Uid>, style: ComputedStyle) -> Self {
+    fn new(
+        uid: Option<Uid>,
+        style: ComputedStyle,
+        renderer: Option<rendering::NodeContentRenderer>,
+    ) -> Self {
         Self {
             uid,
             style,
             text_layout: None,
             position: Vec2::default(),
             vertical_text_offset: 0.px(),
+            renderer,
         }
     }
 
@@ -227,7 +233,87 @@ pub enum PersistentStateKey {
     Custom(&'static str),
 }
 
-type PersistentState = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 2>>;
+type PersistentStateStorage = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 2>>;
+
+#[derive(Default)]
+enum PersistentStateRepr {
+    #[default]
+    Empty,
+    Populated {
+        storage: PersistentStateStorage,
+    },
+}
+
+#[derive(Default)]
+#[repr(transparent)]
+pub struct PersistentState(PersistentStateRepr);
+
+impl PersistentState {
+    const EMPTY: Self = Self(PersistentStateRepr::Empty);
+
+    #[must_use]
+    #[inline]
+    pub fn get<T: Any>(&self, key: PersistentStateKey) -> Option<&T> {
+        let PersistentStateRepr::Populated { storage } = &self.0 else {
+            return None;
+        };
+
+        let any = storage.get(&key)?;
+        any.downcast_ref()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn get_mut<T: Any>(&mut self, key: PersistentStateKey) -> Option<&mut T> {
+        let PersistentStateRepr::Populated { storage } = &mut self.0 else {
+            return None;
+        };
+
+        let any = storage.get_mut(&key)?;
+        any.downcast_mut()
+    }
+
+    #[must_use]
+    #[inline]
+    fn storage_mut<'a>(&'a mut self) -> &'a mut PersistentStateStorage {
+        if let PersistentStateRepr::Empty = self.0 {
+            self.0 = PersistentStateRepr::Populated {
+                storage: PersistentStateStorage::default(),
+            };
+        }
+
+        let PersistentStateRepr::Populated { storage } = &mut self.0 else {
+            unreachable!()
+        };
+        storage
+    }
+
+    #[must_use]
+    pub fn get_or_insert<T: Any>(&mut self, key: PersistentStateKey, default: T) -> Option<&mut T> {
+        let any = self
+            .storage_mut()
+            .entry(key)
+            .or_insert_with(|| smallbox!(default));
+        any.downcast_mut()
+    }
+
+    #[must_use]
+    pub fn get_or_insert_with<T: Any>(
+        &mut self,
+        key: PersistentStateKey,
+        default: impl FnOnce() -> T,
+    ) -> Option<&mut T> {
+        let any = self
+            .storage_mut()
+            .entry(key)
+            .or_insert_with(|| smallbox!(default()));
+        any.downcast_mut()
+    }
+
+    pub fn insert<T: Any>(&mut self, key: PersistentStateKey, value: T) {
+        self.storage_mut().insert(key, smallbox!(value));
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HoverState {
@@ -416,7 +502,9 @@ impl ByorGui {
             .build_style(None, &[], Theme::ROOT_TYPE_CLASS);
         let cascaded_style = root_style.cascade_root(screen_size);
         let computed_style = compute_style(&root_style, &cascaded_style, None, scale_factor);
-        let primary_builder = self.forest.insert_primary(Node::new(None, computed_style));
+        let primary_builder = self
+            .forest
+            .insert_primary(Node::new(None, computed_style, None));
 
         ByorGuiContext {
             builder: primary_builder,
@@ -542,45 +630,22 @@ impl ByorGuiContext<'_> {
     }
 
     #[must_use]
-    pub fn get_persistent_state<T: Any>(&self, uid: Uid, key: PersistentStateKey) -> Option<&T> {
+    pub fn persistent_state(&self, uid: Uid) -> &PersistentState {
         let uid = self.compute_recursive_uid(uid);
-        let state = self.data.persistent_state.get(uid)?;
-        let any = state.get(&key)?;
-        any.downcast_ref()
+        self.data
+            .persistent_state
+            .get(uid)
+            .unwrap_or(&PersistentState::EMPTY)
     }
 
     #[must_use]
-    pub fn get_persistent_state_mut<T: Any>(
-        &mut self,
-        uid: Uid,
-        key: PersistentStateKey,
-    ) -> Option<&mut T> {
+    pub fn persistent_state_mut(&mut self, uid: Uid) -> &mut PersistentState {
         let uid = self.compute_recursive_uid(uid);
-        let state = self.data.persistent_state.get_mut(uid)?;
-        let any = state.get_mut(&key)?;
-        any.downcast_mut()
-    }
-
-    pub fn get_or_insert_persistent_state<T: Any>(
-        &mut self,
-        uid: Uid,
-        key: PersistentStateKey,
-        default: impl FnOnce() -> T,
-    ) -> Option<&mut T> {
-        let uid = self.compute_recursive_uid(uid);
-        let state = self.data.persistent_state.entry(uid).or_default();
-        let any = state.entry(key).or_insert_with(|| smallbox!(default()));
-        any.downcast_mut()
-    }
-
-    pub fn insert_persistent_state<T: Any>(&mut self, uid: Uid, key: PersistentStateKey, value: T) {
-        let uid = self.compute_recursive_uid(uid);
-        let state = self.data.persistent_state.entry(uid).or_default();
-        state.insert(key, smallbox!(value));
+        self.data.persistent_state.entry(uid).or_default()
     }
 
     #[must_use]
-    pub fn get_previous_state(&self, uid: Uid) -> Option<&PreviousState> {
+    pub fn previous_state(&self, uid: Uid) -> Option<&PreviousState> {
         let uid = self.compute_recursive_uid(uid);
         self.data.previous_state.get(uid)
     }
@@ -687,6 +752,7 @@ impl ByorGuiContext<'_> {
         &'gui mut self,
         uid: Option<Uid>,
         style: &Style,
+        renderer: Option<rendering::NodeContentRenderer>,
         is_root: bool,
     ) -> widgets::WidgetResult<ByorGuiContext<'gui>> {
         let cascaded_style = style.cascade(&self.parent_style);
@@ -697,7 +763,9 @@ impl ByorGuiContext<'_> {
             self.data.scale_factor,
         );
         let input_state = self.compute_node_input_state(uid);
-        let builder = self.builder.insert(Node::new(uid, computed_style), is_root);
+        let builder = self
+            .builder
+            .insert(Node::new(uid, computed_style, renderer), is_root);
 
         if let Some(uid) = uid {
             let prev_state = self.data.previous_state.entry(uid).or_default();
@@ -813,9 +881,14 @@ impl ByorGuiContext<'_> {
     }
 
     #[track_caller]
-    pub fn insert_node(&mut self, uid: Option<Uid>, style: &Style) -> InsertNodeResult<()> {
+    pub fn insert_node(
+        &mut self,
+        uid: Option<Uid>,
+        style: &Style,
+        renderer: Option<rendering::NodeContentRenderer>,
+    ) -> InsertNodeResult<()> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, false)?;
+        let context = self.insert_leaf_node(uid, style, renderer, false)?;
         let input_state = context.parent_input_state;
 
         Ok(NodeResponse {
@@ -832,7 +905,7 @@ impl ByorGuiContext<'_> {
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> InsertNodeResult<R> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, false)?;
+        let context = self.insert_leaf_node(uid, style, None, false)?;
         let input_state = context.parent_input_state;
         let result = contents(context);
 
@@ -850,7 +923,7 @@ impl ByorGuiContext<'_> {
         text: &str,
     ) -> InsertNodeResult<()> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let mut context = self.insert_leaf_node(uid, style, false)?;
+        let mut context = self.insert_leaf_node(uid, style, None, false)?;
         let input_state = context.parent_input_state;
         context.layout_text(text);
 
@@ -870,7 +943,7 @@ impl ByorGuiContext<'_> {
     ) -> InsertNodeResult<R> {
         let uid = self.compute_recursive_uid(uid);
         self.update_float_position(uid, position);
-        let context = self.insert_leaf_node(Some(uid), style, true)?;
+        let context = self.insert_leaf_node(Some(uid), style, None, true)?;
         let input_state = context.parent_input_state;
         let result = contents(context);
 

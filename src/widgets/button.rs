@@ -49,7 +49,7 @@ impl LeafWidgetData for ButtonData<'_> {
         style: Style,
     ) -> WidgetResult<Self::ShowResult> {
         Ok(gui
-            .insert_text_node(Some(uid.produce()), &style, self.text)?
+            .insert_node(Some(uid.produce()), &style, NodeContents::text(self.text))?
             .input_state)
     }
 }

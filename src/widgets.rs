@@ -199,7 +199,7 @@ impl ByorGuiContext<'_> {
     #[track_caller]
     pub fn show<Data: LeafWidgetData>(
         &mut self,
-        widget: Widget<'_, '_, Data>,
+        widget: Widget<Data>,
     ) -> WidgetResult<Data::ShowResult> {
         let style = self
             .theme()
@@ -211,7 +211,7 @@ impl ByorGuiContext<'_> {
     #[track_caller]
     pub fn show_container<Data: ContainerWidgetData, R>(
         &mut self,
-        widget: Widget<'_, '_, Data>,
+        widget: Widget<Data>,
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<Data::ShowResult<R>> {
         let style = self

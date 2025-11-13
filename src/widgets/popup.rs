@@ -56,7 +56,12 @@ impl ContainerWidgetData for PopupData<'_> {
         let uid = uid.produce();
 
         let result = if *self.open {
-            let response = gui.insert_floating_node(uid, self.position, &style, contents)?;
+            let response = gui.insert_floating_node(
+                uid,
+                self.position,
+                &style,
+                NodeContents::builder(contents),
+            )?;
 
             //  If this is the first frame the popup opened, do not immediately close it
             let previous_open = gui

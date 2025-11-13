@@ -29,7 +29,7 @@ impl ContainerWidgetData for FlexPanelData {
         contents: impl FnOnce(ByorGuiContext<'_>) -> R,
     ) -> WidgetResult<Self::ShowResult<R>> {
         Ok(gui
-            .insert_container_node(uid.into(), &style, contents)?
+            .insert_node(uid.into(), &style, NodeContents::builder(contents))?
             .result)
     }
 }

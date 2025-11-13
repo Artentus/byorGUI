@@ -713,6 +713,75 @@ impl std::error::Error for DuplicateUidError {}
 
 pub type InsertNodeResult<T> = widgets::WidgetResult<NodeResponse<T>>;
 
+pub trait GuiBuilder {
+    type Result;
+
+    fn build(self, gui: ByorGuiContext<'_>) -> Self::Result;
+}
+
+impl<R, F> GuiBuilder for F
+where
+    F: FnOnce(ByorGuiContext<'_>) -> R,
+{
+    type Result = R;
+
+    #[inline]
+    fn build(self, gui: ByorGuiContext<'_>) -> Self::Result {
+        self(gui)
+    }
+}
+
+impl GuiBuilder for () {
+    type Result = ();
+
+    #[inline]
+    fn build(self, _gui: ByorGuiContext<'_>) -> Self::Result {}
+}
+
+pub struct NodeContents<'text, Builder: GuiBuilder = ()> {
+    pub text: Option<&'text str>,
+    pub renderer: Option<rendering::NodeContentRenderer>,
+    pub builder: Builder,
+}
+
+impl<'text> NodeContents<'text> {
+    pub const EMPTY: Self = Self {
+        text: None,
+        renderer: None,
+        builder: (),
+    };
+
+    #[must_use]
+    #[inline]
+    pub const fn text(text: &'text str) -> Self {
+        Self {
+            text: Some(text),
+            ..Self::EMPTY
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn renderer(renderer: rendering::NodeContentRenderer) -> Self {
+        Self {
+            renderer: Some(renderer),
+            ..Self::EMPTY
+        }
+    }
+}
+
+impl<R, F: FnOnce(ByorGuiContext<'_>) -> R> NodeContents<'_, F> {
+    #[must_use]
+    #[inline]
+    pub const fn builder(f: F) -> Self {
+        Self {
+            text: None,
+            renderer: None,
+            builder: f,
+        }
+    }
+}
+
 impl ByorGuiContext<'_> {
     #[must_use]
     #[inline]
@@ -881,75 +950,44 @@ impl ByorGuiContext<'_> {
     }
 
     #[track_caller]
-    pub fn insert_node(
+    pub fn insert_node<Builder: GuiBuilder>(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
-        renderer: Option<rendering::NodeContentRenderer>,
-    ) -> InsertNodeResult<()> {
+        contents: NodeContents<Builder>,
+    ) -> InsertNodeResult<Builder::Result> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, renderer, false)?;
-        let input_state = context.parent_input_state;
+        let mut context = self.insert_leaf_node(uid, style, contents.renderer, false)?;
+
+        if let Some(text) = contents.text {
+            context.layout_text(text);
+        }
 
         Ok(NodeResponse {
-            input_state,
-            result: (),
+            input_state: context.parent_input_state,
+            result: contents.builder.build(context),
         })
     }
 
     #[track_caller]
-    pub fn insert_container_node<R>(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> InsertNodeResult<R> {
-        let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let context = self.insert_leaf_node(uid, style, None, false)?;
-        let input_state = context.parent_input_state;
-        let result = contents(context);
-
-        Ok(NodeResponse {
-            input_state,
-            result,
-        })
-    }
-
-    #[track_caller]
-    pub fn insert_text_node(
-        &mut self,
-        uid: Option<Uid>,
-        style: &Style,
-        text: &str,
-    ) -> InsertNodeResult<()> {
-        let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let mut context = self.insert_leaf_node(uid, style, None, false)?;
-        let input_state = context.parent_input_state;
-        context.layout_text(text);
-
-        Ok(NodeResponse {
-            input_state,
-            result: (),
-        })
-    }
-
-    #[track_caller]
-    pub fn insert_floating_node<R>(
+    pub fn insert_floating_node<Builder: GuiBuilder>(
         &mut self,
         uid: Uid,
         position: FloatPosition,
         style: &Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> InsertNodeResult<R> {
+        contents: NodeContents<Builder>,
+    ) -> InsertNodeResult<Builder::Result> {
         let uid = self.compute_recursive_uid(uid);
         self.update_float_position(uid, position);
-        let context = self.insert_leaf_node(Some(uid), style, None, true)?;
-        let input_state = context.parent_input_state;
-        let result = contents(context);
+        let mut context = self.insert_leaf_node(Some(uid), style, contents.renderer, true)?;
+
+        if let Some(text) = contents.text {
+            context.layout_text(text);
+        }
 
         Ok(NodeResponse {
-            input_state,
-            result,
+            input_state: context.parent_input_state,
+            result: contents.builder.build(context),
         })
     }
 }

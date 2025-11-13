@@ -48,7 +48,7 @@ impl LeafWidgetData for LabelData<'_> {
         uid: MaybeUid,
         style: Style,
     ) -> WidgetResult<Self::ShowResult> {
-        gui.insert_text_node(uid.into(), &style, self.text)?;
+        gui.insert_node(uid.into(), &style, NodeContents::text(self.text))?;
         Ok(())
     }
 }

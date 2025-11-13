@@ -451,7 +451,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                         border_color: %inherit,
                         corner_radius: 5.0.pt(),
                     },
-                    None,
+                    NodeContents::EMPTY,
                 )?;
 
                 Ok(())
@@ -472,7 +472,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     border_color: %inherit,
                     corner_radius: 5.0.pt(),
                 },
-                None,
+                NodeContents::EMPTY,
             )?;
         }
 
@@ -490,7 +490,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                 width: Sizing::Grow,
                 height: 100.pt(),
             },
-            None,
+            NodeContents::EMPTY,
         )?;
 
         let style = style! {
@@ -511,7 +511,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                 .with_style(&style);
             gui.show(label)?;
 
-            gui.insert_container_node(
+            gui.insert_node(
                 const { Some(Uid::from_slice(b"popup_parent")) },
                 &style! {
                     width: 100.pt(),
@@ -521,7 +521,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     border_color: %inherit,
                     corner_radius: 5.0.pt(),
                 },
-                |mut gui| {
+                NodeContents::builder(|mut gui| {
                     if gui.parent_input_state().clicked(MouseButtons::SECONDARY) {
                         app_state.show_popup = true;
                     }
@@ -546,7 +546,7 @@ fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> Wi
                     .transpose()?;
 
                     Ok(())
-                },
+                }),
             )?
             .result?;
 

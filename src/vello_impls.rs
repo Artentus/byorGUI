@@ -1,6 +1,6 @@
 use crate::rendering::*;
 use crate::*;
-use vello::kurbo::{self, Affine, Line, Rect, Stroke};
+use vello::kurbo::{self, Affine, Line, PathEl, Rect, Shape, Stroke};
 use vello::peniko::color::{AlphaColor, Srgb};
 use vello::peniko::{self, Fill};
 
@@ -38,6 +38,77 @@ impl From<Color> for AlphaColor<Srgb> {
     #[inline]
     fn from(value: Color) -> Self {
         Self::from_rgba8(value.r, value.g, value.b, value.a)
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct Polygon<'a> {
+    vertices: &'a [Vec2<Pixel>],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PolygonIterState {
+    Open,
+    Vertex,
+    Finished,
+}
+
+struct PolygonIter<'a> {
+    state: PolygonIterState,
+    vertices: &'a [Vec2<Pixel>],
+}
+
+impl Iterator for PolygonIter<'_> {
+    type Item = PathEl;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.state == PolygonIterState::Finished {
+            None
+        } else if let Some((&vertex, remaining)) = self.vertices.split_first() {
+            self.vertices = remaining;
+
+            if self.state == PolygonIterState::Open {
+                self.state = PolygonIterState::Vertex;
+                Some(PathEl::MoveTo(vertex.into()))
+            } else {
+                Some(PathEl::LineTo(vertex.into()))
+            }
+        } else {
+            self.state = PolygonIterState::Finished;
+            Some(PathEl::ClosePath)
+        }
+    }
+}
+
+impl Shape for Polygon<'_> {
+    type PathElementsIter<'iter>
+        = PolygonIter<'iter>
+    where
+        Self: 'iter;
+
+    fn path_elements(&self, _tolerance: f64) -> Self::PathElementsIter<'_> {
+        PolygonIter {
+            state: PolygonIterState::Open,
+            vertices: self.vertices,
+        }
+    }
+
+    // All of these are unnecessary for drawing
+    fn area(&self) -> f64 {
+        unimplemented!()
+    }
+
+    fn perimeter(&self, _accuracy: f64) -> f64 {
+        unimplemented!()
+    }
+
+    fn winding(&self, _pt: kurbo::Point) -> i32 {
+        unimplemented!()
+    }
+
+    fn bounding_box(&self) -> Rect {
+        unimplemented!()
     }
 }
 
@@ -111,6 +182,39 @@ impl Renderer for vello::Scene {
                     &rect.to_rounded_rect(corner_radius.value() as f64),
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    fn draw_poly(
+        &mut self,
+        vertices: &[Vec2<Pixel>],
+        stroke_width: Float<Pixel>,
+        color: Color,
+    ) -> RenderResult<()> {
+        if (color.a > 0) && (stroke_width.value() > 0.0) {
+            let poly = Polygon { vertices };
+            let brush = peniko::Brush::Solid(color.into());
+
+            self.stroke(
+                &Stroke::new(stroke_width.value() as f64),
+                Affine::IDENTITY,
+                &brush,
+                None,
+                &poly,
+            );
+        }
+
+        Ok(())
+    }
+
+    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> RenderResult<()> {
+        if color.a > 0 {
+            let poly = Polygon { vertices };
+            let brush = peniko::Brush::Solid(color.into());
+
+            self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &poly);
         }
 
         Ok(())

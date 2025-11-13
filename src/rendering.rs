@@ -28,6 +28,15 @@ pub trait Renderer {
         color: Color,
     ) -> RenderResult<()>;
 
+    fn draw_poly(
+        &mut self,
+        vertices: &[Vec2<Pixel>],
+        stroke_width: Float<Pixel>,
+        color: Color,
+    ) -> RenderResult<()>;
+
+    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> RenderResult<()>;
+
     fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2<Pixel>) -> RenderResult<()>;
 }
 
@@ -70,6 +79,18 @@ fn draw_tree<R: Renderer>(
     let (clip_position, clip_size) = node.clip_bounds();
     renderer.push_clip_rect(clip_position, clip_size)?;
 
+    if let Some(node_renderer) = node.renderer {
+        let context = RenderContext {
+            position: node.position,
+            size: node.style.fixed_size,
+            style: &node.style,
+            persistent_state: node.uid.and_then(|uid| data.persistent_state.get(uid)),
+            renderer,
+        };
+
+        node_renderer(context)?;
+    }
+
     if let Some(&text_layout_id) = node.text_layout.as_ref() {
         let text_layout = &data.text_layouts[text_layout_id];
 
@@ -91,18 +112,6 @@ fn draw_tree<R: Renderer>(
                 }
             }
         }
-    }
-
-    if let Some(node_renderer) = node.renderer {
-        let context = RenderContext {
-            position: node.position,
-            size: node.style.fixed_size,
-            style: &node.style,
-            persistent_state: node.uid.and_then(|uid| data.persistent_state.get(uid)),
-            renderer,
-        };
-
-        node_renderer(context)?;
     }
 
     iter_subtrees!(descendants => |subtree| {

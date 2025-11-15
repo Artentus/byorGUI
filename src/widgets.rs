@@ -7,7 +7,7 @@ pub mod scroll;
 use crate::theme::StyleClass;
 use crate::*;
 
-pub use button::Button;
+pub use button::{Button, CanvasButton, ContentButton};
 pub use label::Label;
 pub use panel::FlexPanel;
 pub use popup::Popup;
@@ -60,28 +60,28 @@ pub trait WidgetData: Sized {
     fn type_class(&self) -> StyleClass;
 }
 
-pub trait LeafWidgetData: WidgetData {
+pub trait LeafWidgetData<Renderer: rendering::Renderer>: WidgetData {
     type ShowResult;
 
     #[track_caller]
     fn show(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
     ) -> WidgetResult<Self::ShowResult>;
 }
 
-pub trait ContainerWidgetData: WidgetData {
+pub trait ContainerWidgetData<Renderer: rendering::Renderer>: WidgetData {
     type ShowResult<T>;
 
     #[track_caller]
     fn show<R>(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Self::ShowResult<R>>;
 }
 
@@ -195,9 +195,9 @@ impl<'style, 'classes, Data: WidgetData> Widget<'style, 'classes, Data> {
     }
 }
 
-impl ByorGuiContext<'_> {
+impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     #[track_caller]
-    pub fn show<Data: LeafWidgetData>(
+    pub fn show<Data: LeafWidgetData<Renderer>>(
         &mut self,
         widget: Widget<Data>,
     ) -> WidgetResult<Data::ShowResult> {
@@ -209,10 +209,10 @@ impl ByorGuiContext<'_> {
     }
 
     #[track_caller]
-    pub fn show_container<Data: ContainerWidgetData, R>(
+    pub fn show_container<Data: ContainerWidgetData<Renderer>, R>(
         &mut self,
         widget: Widget<Data>,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Data::ShowResult<R>> {
         let style = self
             .theme()
@@ -237,9 +237,30 @@ impl ByorGuiContext<'_> {
 
     #[track_caller]
     #[inline]
+    pub fn content_button<R>(
+        &mut self,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>),
+    ) -> WidgetResult<NodeInputState> {
+        let button = ContentButton::default();
+        self.show_container(button, contents)
+            .map(|response| response.input_state)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub fn canvas_button(
+        &mut self,
+        renderer: impl rendering::NodeRenderer<Renderer = Renderer>,
+    ) -> WidgetResult<NodeInputState> {
+        let button = CanvasButton::new(renderer);
+        self.show(button)
+    }
+
+    #[track_caller]
+    #[inline]
     pub fn flex_panel<R>(
         &mut self,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<R> {
         let panel = FlexPanel::default();
         self.show_container(panel, contents)
@@ -269,7 +290,7 @@ impl ByorGuiContext<'_> {
     #[inline]
     pub fn horizontal_scroll_view<R>(
         &mut self,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<R> {
         self.show_container(ScrollView::horizontal(), contents)
     }
@@ -278,7 +299,7 @@ impl ByorGuiContext<'_> {
     #[inline]
     pub fn vertical_scroll_view<R>(
         &mut self,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<R> {
         self.show_container(ScrollView::vertical(), contents)
     }
@@ -289,7 +310,7 @@ impl ByorGuiContext<'_> {
         &mut self,
         open: &mut bool,
         position: FloatPosition,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Option<R>> {
         let popup = Popup::new(open).with_position(position);
         self.show_container(popup, contents)

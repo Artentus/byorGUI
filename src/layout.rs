@@ -34,7 +34,11 @@ fn wrap_text(node: &mut Node, text_layout: &mut TextLayout<Color>) {
 }
 
 // must be bottom up recursive
-fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData, axis: Axis) {
+fn compute_node_size<Renderer: rendering::Renderer>(
+    tree: TreeRef<'_, Node, Exclusive>,
+    data: &mut ByorGuiData<Renderer>,
+    axis: Axis,
+) {
     use parley::ContentWidths as TextMeasurements;
 
     let TreeRef {
@@ -56,7 +60,7 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
         *node.style.min_size.along_axis_mut(axis) = size;
         *node.style.max_size.along_axis_mut(axis) = size;
 
-        if let Some(&text_layout_id) = node.text_layout.as_ref()
+        if let Some(text_layout_id) = node.text_layout.expand()
             && (axis == Axis::Y)
         {
             let text_layout = &mut data.text_layouts[text_layout_id];
@@ -67,7 +71,7 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
     }
 
     // text sizing
-    if let Some(&text_layout_id) = node.text_layout.as_ref() {
+    if let Some(text_layout_id) = node.text_layout.expand() {
         let text_layout = &mut data.text_layouts[text_layout_id];
         let padding: Float<Pixel> = node.style.padding().along_axis(axis).into_iter().sum();
 
@@ -160,7 +164,11 @@ fn compute_node_size(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData,
 }
 
 // must be top down recursive
-fn grow_or_shrink_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData, axis: Axis) {
+fn grow_or_shrink_children<Renderer: rendering::Renderer>(
+    tree: TreeRef<'_, Node, Exclusive>,
+    data: &mut ByorGuiData<Renderer>,
+    axis: Axis,
+) {
     let TreeRef {
         parent,
         mut descendants,
@@ -261,14 +269,17 @@ fn grow_or_shrink_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGu
     });
 }
 
-fn position_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData) {
+fn position_children<Renderer: rendering::Renderer>(
+    tree: TreeRef<'_, Node, Exclusive>,
+    data: &mut ByorGuiData<Renderer>,
+) {
     let TreeRef {
         parent,
         mut descendants,
         ..
     } = tree;
 
-    if let Some(&text_layout_id) = parent.text_layout.as_ref() {
+    if let Some(text_layout_id) = parent.text_layout.expand() {
         let text_layout = &data.text_layouts[text_layout_id];
 
         parent.vertical_text_offset = match parent.style.vertical_text_alignment() {
@@ -386,7 +397,7 @@ fn position_children(tree: TreeRef<'_, Node, Exclusive>, data: &mut ByorGuiData)
     });
 }
 
-impl ByorGui {
+impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
     pub(crate) fn layout(&mut self) {
         if let Some(mut tree) = self.forest.primary_mut() {
             compute_node_size(tree.reborrow_mut(), &mut self.data, Axis::X);

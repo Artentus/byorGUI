@@ -11,6 +11,7 @@ pub mod theme;
 pub mod widgets;
 
 use cranelift_entity::PrimaryMap;
+use cranelift_entity::packed_option::PackedOption;
 use forest::*;
 use input::*;
 use intmap::{IntKey, IntMap};
@@ -23,6 +24,8 @@ use std::hash::Hasher;
 use style::computed::*;
 use style::*;
 use theme::Theme;
+
+use crate::rendering::NodeRenderer;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
@@ -181,29 +184,46 @@ macro_rules! define_id_type {
 }
 
 define_id_type!(TextLayoutId);
+define_id_type!(NodeRendererId);
 
 struct Node {
     uid: Option<Uid>,
+    text_layout: PackedOption<TextLayoutId>,
+    renderer: PackedOption<NodeRendererId>,
     style: ComputedStyle,
-    text_layout: Option<TextLayoutId>,
     position: Vec2<Pixel>,
     vertical_text_offset: Float<Pixel>,
-    renderer: Option<rendering::NodeContentRenderer>,
 }
 
 impl Node {
+    #[must_use]
+    #[inline]
+    fn new_root(style: ComputedStyle) -> Self {
+        Self {
+            uid: None,
+            text_layout: PackedOption::default(),
+            renderer: PackedOption::default(),
+            style,
+            position: Vec2::default(),
+            vertical_text_offset: 0.px(),
+        }
+    }
+
+    #[must_use]
+    #[inline]
     fn new(
         uid: Option<Uid>,
+        text_layout: Option<TextLayoutId>,
+        renderer: Option<NodeRendererId>,
         style: ComputedStyle,
-        renderer: Option<rendering::NodeContentRenderer>,
     ) -> Self {
         Self {
             uid,
+            text_layout: text_layout.into(),
+            renderer: renderer.into(),
             style,
-            text_layout: None,
             position: Vec2::default(),
             vertical_text_offset: 0.px(),
-            renderer,
         }
     }
 
@@ -336,9 +356,12 @@ pub struct PreviousState {
     pub position: Vec2<Pixel>,
 }
 
+type NodeRendererStorage<Renderer> = SmallBox<dyn rendering::NodeRenderer<Renderer = Renderer>, 8>;
+
 #[derive(Default)]
-struct ByorGuiData {
+struct ByorGuiData<Renderer: rendering::Renderer> {
     text_layouts: PrimaryMap<TextLayoutId, TextLayout<Color>>,
+    renderers: PrimaryMap<NodeRendererId, NodeRendererStorage<Renderer>>,
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
     float_positions: IntMap<Uid, PersistentFloatPosition>,
@@ -352,15 +375,15 @@ struct ByorGuiData {
 }
 
 #[derive(Default)]
-pub struct ByorGui {
+pub struct ByorGui<Renderer: rendering::Renderer> {
     forest: Forest<Node>,
-    data: ByorGuiData,
+    data: ByorGuiData<Renderer>,
 }
 
 #[must_use]
-fn compute_previous_state(
+fn compute_previous_state<Renderer: rendering::Renderer>(
     tree: TreeRef<'_, Node, Shared>,
-    data: &mut ByorGuiData,
+    data: &mut ByorGuiData<Renderer>,
     mouse_in_parent_clip_bounds: bool,
 ) -> Option<Uid> {
     let mut hovered_node = None;
@@ -440,7 +463,7 @@ fn compute_previous_state(
     hovered_node
 }
 
-impl ByorGui {
+impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
     #[must_use]
     #[inline]
     pub fn theme(&self) -> &Theme {
@@ -481,8 +504,9 @@ impl ByorGui {
         screen_size: Vec2<Pixel>,
         scale_factor: f32,
         mouse_state: MouseState,
-    ) -> ByorGuiContext<'gui> {
+    ) -> ByorGuiContext<'gui, Renderer> {
         self.data.text_layouts.clear();
+        self.data.renderers.clear();
         self.data
             .previous_state
             .values_mut()
@@ -502,9 +526,7 @@ impl ByorGui {
             .build_style(None, &[], Theme::ROOT_TYPE_CLASS);
         let cascaded_style = root_style.cascade_root(screen_size, input_state);
         let computed_style = compute_style(&root_style, &cascaded_style, None, scale_factor);
-        let primary_builder = self
-            .forest
-            .insert_primary(Node::new(None, computed_style, None));
+        let primary_builder = self.forest.insert_primary(Node::new_root(computed_style));
 
         ByorGuiContext {
             builder: primary_builder,
@@ -522,15 +544,15 @@ impl ByorGui {
     }
 
     #[inline]
-    pub fn frame<R>(
+    pub fn frame<T>(
         &mut self,
         screen_size: Vec2<Pixel>,
         scale_factor: f32,
         mouse_state: MouseState,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
-    ) -> R {
+        builder: impl FnOnce(ByorGuiContext<'_, Renderer>) -> T,
+    ) -> T {
         let context = self.begin_frame(screen_size, scale_factor, mouse_state);
-        let result = contents(context);
+        let result = builder(context);
         self.end_frame();
 
         result
@@ -575,14 +597,14 @@ impl NodeInputState {
     }
 }
 
-pub struct ByorGuiContext<'gui> {
+pub struct ByorGuiContext<'gui, Renderer: rendering::Renderer> {
     builder: ForestBuilder<'gui, Node>,
-    data: &'gui mut ByorGuiData,
+    data: &'gui mut ByorGuiData<Renderer>,
     parent_style: CascadedStyle,
     parent_input_state: NodeInputState,
 }
 
-impl ByorGuiContext<'_> {
+impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     #[must_use]
     #[inline]
     pub fn theme(&self) -> &Theme {
@@ -713,38 +735,43 @@ impl std::error::Error for DuplicateUidError {}
 
 pub type InsertNodeResult<T> = widgets::WidgetResult<NodeResponse<T>>;
 
-pub trait GuiBuilder {
+pub trait GuiBuilder<Renderer: rendering::Renderer> {
     type Result;
 
-    fn build(self, gui: ByorGuiContext<'_>) -> Self::Result;
+    fn build(self, gui: ByorGuiContext<'_, Renderer>) -> Self::Result;
 }
 
-impl<R, F> GuiBuilder for F
+impl<Renderer, R, F> GuiBuilder<Renderer> for F
 where
-    F: FnOnce(ByorGuiContext<'_>) -> R,
+    Renderer: rendering::Renderer,
+    F: FnOnce(ByorGuiContext<'_, Renderer>) -> R,
 {
     type Result = R;
 
     #[inline]
-    fn build(self, gui: ByorGuiContext<'_>) -> Self::Result {
+    fn build(self, gui: ByorGuiContext<'_, Renderer>) -> Self::Result {
         self(gui)
     }
 }
 
-impl GuiBuilder for () {
+impl<Renderer: rendering::Renderer> GuiBuilder<Renderer> for () {
     type Result = ();
 
     #[inline]
-    fn build(self, _gui: ByorGuiContext<'_>) -> Self::Result {}
+    fn build(self, _gui: ByorGuiContext<'_, Renderer>) -> Self::Result {}
 }
 
-pub struct NodeContents<'text, Builder: GuiBuilder = ()> {
+pub struct NodeContents<'text, Renderer, Builder = ()>
+where
+    Renderer: rendering::Renderer,
+    Builder: GuiBuilder<Renderer>,
+{
     pub text: Option<&'text str>,
-    pub renderer: Option<rendering::NodeContentRenderer>,
+    pub renderer: Option<NodeRendererStorage<Renderer>>,
     pub builder: Builder,
 }
 
-impl<'text> NodeContents<'text> {
+impl<'text, Renderer: rendering::Renderer> NodeContents<'text, Renderer> {
     pub const EMPTY: Self = Self {
         text: None,
         renderer: None,
@@ -762,15 +789,19 @@ impl<'text> NodeContents<'text> {
 
     #[must_use]
     #[inline]
-    pub const fn renderer(renderer: rendering::NodeContentRenderer) -> Self {
+    pub fn renderer(renderer: impl NodeRenderer<Renderer = Renderer>) -> Self {
         Self {
-            renderer: Some(renderer),
+            renderer: Some(smallbox!(renderer)),
             ..Self::EMPTY
         }
     }
 }
 
-impl<R, F: FnOnce(ByorGuiContext<'_>) -> R> NodeContents<'_, F> {
+impl<Renderer, R, F> NodeContents<'_, Renderer, F>
+where
+    Renderer: rendering::Renderer,
+    F: FnOnce(ByorGuiContext<'_, Renderer>) -> R,
+{
     #[must_use]
     #[inline]
     pub const fn builder(f: F) -> Self {
@@ -782,7 +813,7 @@ impl<R, F: FnOnce(ByorGuiContext<'_>) -> R> NodeContents<'_, F> {
     }
 }
 
-impl ByorGuiContext<'_> {
+impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     #[must_use]
     #[inline]
     fn compute_node_input_state(&self, uid: Option<Uid>) -> NodeInputState {
@@ -814,16 +845,41 @@ impl ByorGuiContext<'_> {
         }
     }
 
+    #[must_use]
+    #[inline]
+    fn layout_text(&mut self, text: &str) -> TextLayoutId {
+        use parley::style::{LineHeight, OverflowWrap, StyleProperty};
+
+        global_cache::with_parley_global_data(|parley_global_data| {
+            let mut builder = parley_global_data.builder(text, 1.0);
+
+            let style = &self.builder.parent_node().style;
+            builder.push_default(StyleProperty::Brush(style.text_color()));
+            builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
+            builder.push_default(StyleProperty::FontSize(style.font_size().value()));
+            builder.push_default(StyleProperty::FontStyle(style.font_style()));
+            builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
+            builder.push_default(StyleProperty::FontWeight(style.font_weight()));
+            builder.push_default(StyleProperty::FontWidth(style.font_width()));
+            builder.push_default(StyleProperty::Underline(style.text_underline()));
+            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
+            builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
+
+            self.data.text_layouts.push(builder.build(text))
+        })
+    }
+
     #[track_caller]
     #[must_use]
-    #[inline(never)]
+    #[inline(never)] // Don't inline this to avoid monomorphization duplication
     fn insert_leaf_node<'gui>(
         &'gui mut self,
         uid: Option<Uid>,
         style: &Style,
-        renderer: Option<rendering::NodeContentRenderer>,
         is_root: bool,
-    ) -> widgets::WidgetResult<ByorGuiContext<'gui>> {
+        text: Option<&str>,
+        renderer: Option<NodeRendererStorage<Renderer>>,
+    ) -> widgets::WidgetResult<ByorGuiContext<'gui, Renderer>> {
         let input_state = self.compute_node_input_state(uid);
         let cascaded_style = style.cascade(&self.parent_style, input_state);
         let computed_style = compute_style(
@@ -832,9 +888,11 @@ impl ByorGuiContext<'_> {
             Some(&self.builder.parent_node().style),
             self.data.scale_factor,
         );
-        let builder = self
-            .builder
-            .insert(Node::new(uid, computed_style, renderer), is_root);
+
+        let text_layout = text.map(|text| self.layout_text(text));
+        let renderer = renderer.map(|renderer| self.data.renderers.push(renderer));
+        let node = Node::new(uid, text_layout, renderer, computed_style);
+        let builder = self.builder.insert(node, is_root);
 
         if let Some(uid) = uid {
             let prev_state = self.data.previous_state.entry(uid).or_default();
@@ -854,31 +912,7 @@ impl ByorGuiContext<'_> {
         })
     }
 
-    #[inline(never)]
-    fn layout_text(&mut self, text: &str) {
-        use parley::style::{LineHeight, OverflowWrap, StyleProperty};
-
-        global_cache::with_parley_global_data(|parley_global_data| {
-            let mut builder = parley_global_data.builder(text, 1.0);
-
-            let style = &self.builder.parent_node().style;
-            builder.push_default(StyleProperty::Brush(style.text_color()));
-            builder.push_default(StyleProperty::FontStack(style.font_family().clone()));
-            builder.push_default(StyleProperty::FontSize(style.font_size().value()));
-            builder.push_default(StyleProperty::FontStyle(style.font_style()));
-            builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.3)));
-            builder.push_default(StyleProperty::FontWeight(style.font_weight()));
-            builder.push_default(StyleProperty::FontWidth(style.font_width()));
-            builder.push_default(StyleProperty::Underline(style.text_underline()));
-            builder.push_default(StyleProperty::Strikethrough(style.text_strikethrough()));
-            builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::BreakWord));
-
-            let text_layout = self.data.text_layouts.push(builder.build(text));
-            self.builder.parent_node_mut().text_layout = Some(text_layout);
-        });
-    }
-
-    #[inline(never)]
+    #[inline(never)] // Don't inline this to avoid monomorphization duplication
     fn update_float_position(&mut self, uid: Uid, position: FloatPosition) {
         match position {
             FloatPosition::Cursor => {
@@ -940,7 +974,7 @@ impl ByorGuiContext<'_> {
     pub fn uid_scope<R>(
         &mut self,
         uid: Uid,
-        contents: impl FnOnce(&mut ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(&mut ByorGuiContext<'_, Renderer>) -> R,
     ) -> R {
         let uid = self.compute_recursive_uid(uid);
         self.data.uid_stack.push(uid);
@@ -950,18 +984,14 @@ impl ByorGuiContext<'_> {
     }
 
     #[track_caller]
-    pub fn insert_node<Builder: GuiBuilder>(
+    pub fn insert_node<Builder: GuiBuilder<Renderer>>(
         &mut self,
         uid: Option<Uid>,
         style: &Style,
-        contents: NodeContents<Builder>,
+        contents: NodeContents<Renderer, Builder>,
     ) -> InsertNodeResult<Builder::Result> {
         let uid = uid.map(|uid| self.compute_recursive_uid(uid));
-        let mut context = self.insert_leaf_node(uid, style, contents.renderer, false)?;
-
-        if let Some(text) = contents.text {
-            context.layout_text(text);
-        }
+        let context = self.insert_leaf_node(uid, style, false, contents.text, contents.renderer)?;
 
         Ok(NodeResponse {
             input_state: context.parent_input_state,
@@ -970,20 +1000,17 @@ impl ByorGuiContext<'_> {
     }
 
     #[track_caller]
-    pub fn insert_floating_node<Builder: GuiBuilder>(
+    pub fn insert_floating_node<Builder: GuiBuilder<Renderer>>(
         &mut self,
         uid: Uid,
         position: FloatPosition,
         style: &Style,
-        contents: NodeContents<Builder>,
+        contents: NodeContents<Renderer, Builder>,
     ) -> InsertNodeResult<Builder::Result> {
         let uid = self.compute_recursive_uid(uid);
         self.update_float_position(uid, position);
-        let mut context = self.insert_leaf_node(Some(uid), style, contents.renderer, true)?;
-
-        if let Some(text) = contents.text {
-            context.layout_text(text);
-        }
+        let context =
+            self.insert_leaf_node(Some(uid), style, true, contents.text, contents.renderer)?;
 
         Ok(NodeResponse {
             input_state: context.parent_input_state,

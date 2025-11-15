@@ -2,6 +2,7 @@ use super::*;
 use crate::style::axis::*;
 use crate::theme::StyleClass;
 use crate::*;
+use std::marker::PhantomData;
 
 const SCROLL_BAR_UID: Uid = Uid::from_array(b"##scroll_bar");
 const SCROLL_BAR_DEC_BUTTON_UID: Uid = Uid::from_array(b"##scroll_bar_dec_button");
@@ -24,10 +25,10 @@ impl ScrollBar<'_, '_> {
         StyleClass::new_static("###horizontal_scroll_bar");
     pub const VERTICAL_TYPE_CLASS: StyleClass = StyleClass::new_static("###vertical_scroll_bar");
 
-    pub const HORIZONTAL_BUTTON_CLASS: StyleClass =
-        StyleClass::new_static("###horizontal_scroll_bar_button");
-    pub const VERTICAL_BUTTON_CLASS: StyleClass =
-        StyleClass::new_static("###vertical_scroll_bar_button");
+    pub const LEFT_BUTTON_CLASS: StyleClass = StyleClass::new_static("###scroll_bar_left_button");
+    pub const RIGHT_BUTTON_CLASS: StyleClass = StyleClass::new_static("###scroll_bar_right_button");
+    pub const UP_BUTTON_CLASS: StyleClass = StyleClass::new_static("###scroll_bar_up_button");
+    pub const DOWN_BUTTON_CLASS: StyleClass = StyleClass::new_static("###scroll_bar_down_button");
 
     pub const HORIZONTAL_THUMB_CLASS: StyleClass =
         StyleClass::new_static("###horizontal_scroll_bar_thumb");
@@ -140,12 +141,182 @@ impl WidgetData for ScrollBarData {
     }
 }
 
-impl LeafWidgetData for ScrollBarData {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ButtonDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl ButtonDirection {
+    #[must_use]
+    #[inline]
+    const fn dec_along_axis(axis: Axis) -> Self {
+        match axis {
+            Axis::X => Self::Left,
+            Axis::Y => Self::Up,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    const fn inc_along_axis(axis: Axis) -> Self {
+        match axis {
+            Axis::X => Self::Right,
+            Axis::Y => Self::Down,
+        }
+    }
+}
+
+struct ScrollBarButtonRenderer<Renderer: rendering::Renderer> {
+    direction: ButtonDirection,
+    _renderer: PhantomData<fn(Renderer)>,
+}
+
+impl<Renderer: rendering::Renderer> ScrollBarButtonRenderer<Renderer> {
+    #[must_use]
+    #[inline]
+    const fn new(direction: ButtonDirection) -> Self {
+        Self {
+            direction,
+            _renderer: PhantomData,
+        }
+    }
+}
+
+impl<Renderer: rendering::Renderer> rendering::NodeRenderer for ScrollBarButtonRenderer<Renderer> {
+    type Renderer = Renderer;
+
+    fn render(
+        &self,
+        context: rendering::RenderContext<'_, Self::Renderer>,
+    ) -> Result<(), <Self::Renderer as rendering::Renderer>::Error> {
+        let size = context.size.x.min(context.size.y);
+        let arrow_radius = size / 4.0;
+        let arrow_center = context.position + context.size / 2.0;
+
+        let mut vertices = match self.direction {
+            ButtonDirection::Left => [
+                Vec2 {
+                    x: 0.4.px(),
+                    y: -0.9.px(),
+                },
+                Vec2 {
+                    x: 0.4.px(),
+                    y: 0.9.px(),
+                },
+                Vec2 {
+                    x: -0.6.px(),
+                    y: 0.px(),
+                },
+            ],
+            ButtonDirection::Right => [
+                Vec2 {
+                    x: -0.4.px(),
+                    y: -0.9.px(),
+                },
+                Vec2 {
+                    x: -0.4.px(),
+                    y: 0.9.px(),
+                },
+                Vec2 {
+                    x: 0.6.px(),
+                    y: 0.px(),
+                },
+            ],
+            ButtonDirection::Up => [
+                Vec2 {
+                    x: -0.9.px(),
+                    y: 0.4.px(),
+                },
+                Vec2 {
+                    x: 0.9.px(),
+                    y: 0.4.px(),
+                },
+                Vec2 {
+                    x: 0.px(),
+                    y: -0.6.px(),
+                },
+            ],
+            ButtonDirection::Down => [
+                Vec2 {
+                    x: -0.9.px(),
+                    y: -0.4.px(),
+                },
+                Vec2 {
+                    x: 0.9.px(),
+                    y: -0.4.px(),
+                },
+                Vec2 {
+                    x: 0.px(),
+                    y: 0.6.px(),
+                },
+            ],
+        };
+
+        for vertex in vertices.iter_mut() {
+            *vertex *= arrow_radius.value();
+            *vertex += arrow_center;
+        }
+
+        context
+            .renderer
+            .fill_poly(&vertices, context.style.text_color())
+    }
+}
+
+fn scroll_bar_button<Renderer: rendering::Renderer>(
+    gui: &mut ByorGuiContext<'_, Renderer>,
+    uid: Uid,
+    direction: ButtonDirection,
+) -> WidgetResult<NodeInputState> {
+    let class = match direction {
+        ButtonDirection::Left => &[ScrollBar::LEFT_BUTTON_CLASS],
+        ButtonDirection::Right => &[ScrollBar::RIGHT_BUTTON_CLASS],
+        ButtonDirection::Up => &[ScrollBar::UP_BUTTON_CLASS],
+        ButtonDirection::Down => &[ScrollBar::DOWN_BUTTON_CLASS],
+    };
+
+    let renderer = ScrollBarButtonRenderer::new(direction);
+    let button = CanvasButton::new(renderer)
+        .with_uid(uid)
+        .with_classes(class);
+
+    gui.show(button)
+}
+
+fn scroll_bar_thumb<Renderer: rendering::Renderer>(
+    gui: &mut ByorGuiContext<'_, Renderer>,
+    uid: Uid,
+    axis: Axis,
+    size_ratio: Option<f32>,
+) -> WidgetResult<NodeInputState> {
+    let class = match axis {
+        Axis::X => &[ScrollBar::HORIZONTAL_THUMB_CLASS],
+        Axis::Y => &[ScrollBar::VERTICAL_THUMB_CLASS],
+    };
+
+    let mut thumb = Button::default().with_uid(uid).with_classes(class);
+
+    let mut style = Style::default();
+    if let Some(size_ratio) = size_ratio {
+        style = style
+            .with_flex_ratio(size_ratio)
+            .with_size_along_axis(axis, Sizing::Grow)
+            .with_max_size_along_axis(axis, INITIAL_MAX_SIZE);
+        thumb = thumb.with_style(&style);
+    }
+
+    gui.show(thumb)
+}
+
+impl<Renderer: rendering::Renderer> LeafWidgetData<Renderer> for ScrollBarData {
     type ShowResult = f32;
 
     fn show(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
     ) -> WidgetResult<Self::ShowResult> {
@@ -173,16 +344,6 @@ impl LeafWidgetData for ScrollBarData {
             flex_ratio: opposite_factor,
         };
 
-        let button_class = match self.axis {
-            Axis::X => &[ScrollBar::HORIZONTAL_BUTTON_CLASS],
-            Axis::Y => &[ScrollBar::VERTICAL_BUTTON_CLASS],
-        };
-
-        let thumb_class = match self.axis {
-            Axis::X => &[ScrollBar::HORIZONTAL_THUMB_CLASS],
-            Axis::Y => &[ScrollBar::VERTICAL_THUMB_CLASS],
-        };
-
         let uid = uid.produce();
         let dec_button_uid = uid.concat(SCROLL_BAR_DEC_BUTTON_UID);
         let inc_button_uid = uid.concat(SCROLL_BAR_INC_BUTTON_UID);
@@ -192,28 +353,20 @@ impl LeafWidgetData for ScrollBarData {
             Some(uid),
             &style,
             NodeContents::builder(|mut gui| {
-                let dec_button = Button::default()
-                    .with_uid(dec_button_uid)
-                    .with_classes(button_class);
-                if gui.show(dec_button)?.clicked(MouseButtons::PRIMARY) {
+                let dec_button_response = scroll_bar_button(
+                    &mut gui,
+                    dec_button_uid,
+                    ButtonDirection::dec_along_axis(self.axis),
+                )?;
+                if dec_button_response.clicked(MouseButtons::PRIMARY) {
                     value -= step;
                 }
 
                 gui.insert_node(None, &leading_space_style, NodeContents::EMPTY)?;
 
-                let mut thumb_style = Style::default();
-                let mut thumb = Button::default()
-                    .with_uid(thumb_uid)
-                    .with_classes(thumb_class);
-                if let Some(thumb_size_ratio) = self.thumb_size_ratio {
-                    thumb_style = thumb_style
-                        .with_flex_ratio(thumb_size_ratio)
-                        .with_size_along_axis(self.axis, Sizing::Grow)
-                        .with_max_size_along_axis(self.axis, INITIAL_MAX_SIZE);
-                    thumb = thumb.with_style(&thumb_style);
-                }
-                let response = gui.show(thumb)?;
-                if response.clicked(MouseButtons::PRIMARY) {
+                let thumb_response =
+                    scroll_bar_thumb(&mut gui, thumb_uid, self.axis, self.thumb_size_ratio)?;
+                if thumb_response.clicked(MouseButtons::PRIMARY) {
                     let thumb_pos = gui
                         .previous_state(thumb_uid)
                         .map(|state| state.position.along_axis(self.axis))
@@ -226,7 +379,7 @@ impl LeafWidgetData for ScrollBarData {
 
                     gui.persistent_state_mut(uid)
                         .insert(PersistentStateKey::ScrollBarThumbMouseOffset, thumb_offset);
-                } else if response.pressed(MouseButtons::PRIMARY) {
+                } else if thumb_response.pressed(MouseButtons::PRIMARY) {
                     let (scroll_bar_pos, scroll_bar_size) = gui
                         .previous_state(uid)
                         .map(|state| {
@@ -281,10 +434,12 @@ impl LeafWidgetData for ScrollBarData {
 
                 gui.insert_node(None, &trailing_space_style, NodeContents::EMPTY)?;
 
-                let inc_button = Button::default()
-                    .with_uid(inc_button_uid)
-                    .with_classes(button_class);
-                if gui.show(inc_button)?.clicked(MouseButtons::PRIMARY) {
+                let inc_button_response = scroll_bar_button(
+                    &mut gui,
+                    inc_button_uid,
+                    ButtonDirection::inc_along_axis(self.axis),
+                )?;
+                if inc_button_response.clicked(MouseButtons::PRIMARY) {
                     value += step;
                 }
 
@@ -338,15 +493,15 @@ impl WidgetData for ScrollViewData {
     }
 }
 
-impl ContainerWidgetData for ScrollViewData {
+impl<Renderer: rendering::Renderer> ContainerWidgetData<Renderer> for ScrollViewData {
     type ShowResult<T> = T;
 
     fn show<R>(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Self::ShowResult<R>> {
         let uid = uid.produce();
 

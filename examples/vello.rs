@@ -38,7 +38,7 @@ struct ExampleApp {
     window: Option<Arc<Window>>,
     state: Option<RenderState>,
     required_redraws: u8,
-    gui: ByorGui,
+    gui: ByorGui<Scene>,
     mouse_state: MouseState,
     modifiers: Modifiers,
     app_state: ExampleAppState,
@@ -367,23 +367,15 @@ fn create_theme(theme: &mut Theme) {
         },
     );
 
-    theme.insert_style(
-        ScrollBar::HORIZONTAL_BUTTON_CLASS,
-        &style! {
-            width: 20.pt(),
-            height: 20.pt(),
-            background: button_background,
-        },
-    );
-
-    theme.insert_style(
-        ScrollBar::VERTICAL_BUTTON_CLASS,
-        &style! {
-            width: 20.pt(),
-            height: 20.pt(),
-            background: button_background,
-        },
-    );
+    let scroll_bar_button_style = style! {
+        width: 20.pt(),
+        height: 20.pt(),
+        background: button_background,
+    };
+    theme.insert_style(ScrollBar::LEFT_BUTTON_CLASS, &scroll_bar_button_style);
+    theme.insert_style(ScrollBar::RIGHT_BUTTON_CLASS, &scroll_bar_button_style);
+    theme.insert_style(ScrollBar::UP_BUTTON_CLASS, &scroll_bar_button_style);
+    theme.insert_style(ScrollBar::DOWN_BUTTON_CLASS, &scroll_bar_button_style);
 
     theme.insert_style(
         ScrollBar::HORIZONTAL_THUMB_CLASS,
@@ -438,7 +430,10 @@ fn create_theme(theme: &mut Theme) {
     );
 }
 
-fn build_gui(app_state: &mut ExampleAppState, mut gui: ByorGuiContext<'_>) -> WidgetResult<()> {
+fn build_gui(
+    app_state: &mut ExampleAppState,
+    mut gui: ByorGuiContext<'_, Scene>,
+) -> WidgetResult<()> {
     gui.vertical_scroll_view(|mut gui| {
         for i in 0..5 {
             gui.uid_scope(Uid::new(i), |gui| {

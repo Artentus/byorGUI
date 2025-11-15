@@ -113,14 +113,20 @@ impl Shape for Polygon<'_> {
 }
 
 impl Renderer for vello::Scene {
-    fn push_clip_rect(&mut self, position: Vec2<Pixel>, size: Vec2<Pixel>) -> RenderResult<()> {
+    type Error = std::convert::Infallible;
+
+    fn push_clip_rect(
+        &mut self,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+    ) -> Result<(), Self::Error> {
         let rect = Rect::from_origin_size(position, size);
         self.push_clip_layer(Affine::IDENTITY, &rect);
 
         Ok(())
     }
 
-    fn pop_clip_rect(&mut self) -> RenderResult<()> {
+    fn pop_clip_rect(&mut self) -> Result<(), Self::Error> {
         self.pop_layer();
 
         Ok(())
@@ -133,7 +139,7 @@ impl Renderer for vello::Scene {
         corner_radius: Float<Pixel>,
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()> {
+    ) -> Result<(), Self::Error> {
         if (color.a > 0) && (stroke_width.value() > 0.0) {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
@@ -166,7 +172,7 @@ impl Renderer for vello::Scene {
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()> {
+    ) -> Result<(), Self::Error> {
         if color.a > 0 {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
@@ -192,7 +198,7 @@ impl Renderer for vello::Scene {
         vertices: &[Vec2<Pixel>],
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()> {
+    ) -> Result<(), Self::Error> {
         if (color.a > 0) && (stroke_width.value() > 0.0) {
             let poly = Polygon { vertices };
             let brush = peniko::Brush::Solid(color.into());
@@ -209,7 +215,7 @@ impl Renderer for vello::Scene {
         Ok(())
     }
 
-    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> RenderResult<()> {
+    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> Result<(), Self::Error> {
         if color.a > 0 {
             let poly = Polygon { vertices };
             let brush = peniko::Brush::Solid(color.into());
@@ -220,7 +226,11 @@ impl Renderer for vello::Scene {
         Ok(())
     }
 
-    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2<Pixel>) -> RenderResult<()> {
+    fn draw_text(
+        &mut self,
+        text: GlyphRun<'_, Color>,
+        position: Vec2<Pixel>,
+    ) -> Result<(), Self::Error> {
         let style = text.style();
         let transform = Affine::translate(position);
 

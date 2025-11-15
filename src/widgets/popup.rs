@@ -43,15 +43,15 @@ impl WidgetData for PopupData<'_> {
     }
 }
 
-impl ContainerWidgetData for PopupData<'_> {
+impl<Renderer: rendering::Renderer> ContainerWidgetData<Renderer> for PopupData<'_> {
     type ShowResult<T> = Option<T>;
 
     fn show<R>(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Self::ShowResult<R>> {
         let uid = uid.produce();
 

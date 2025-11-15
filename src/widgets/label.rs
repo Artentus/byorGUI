@@ -39,12 +39,12 @@ impl WidgetData for LabelData<'_> {
     }
 }
 
-impl LeafWidgetData for LabelData<'_> {
+impl<Renderer: rendering::Renderer> LeafWidgetData<Renderer> for LabelData<'_> {
     type ShowResult = ();
 
     fn show(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
     ) -> WidgetResult<Self::ShowResult> {

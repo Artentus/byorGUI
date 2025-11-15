@@ -4,12 +4,16 @@ pub use parley::Style as TextStyle;
 pub use parley::fontique::Synthesis;
 pub use parley::{Cluster, Decoration, FontData, Glyph, GlyphRun, Run, RunMetrics};
 
-pub type RenderResult<T> = anyhow::Result<T>;
+pub trait Renderer: 'static {
+    type Error;
 
-pub trait Renderer {
-    fn push_clip_rect(&mut self, position: Vec2<Pixel>, size: Vec2<Pixel>) -> RenderResult<()>;
+    fn push_clip_rect(
+        &mut self,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+    ) -> Result<(), Self::Error>;
 
-    fn pop_clip_rect(&mut self) -> RenderResult<()>;
+    fn pop_clip_rect(&mut self) -> Result<(), Self::Error>;
 
     fn draw_rect(
         &mut self,
@@ -18,7 +22,7 @@ pub trait Renderer {
         corner_radius: Float<Pixel>,
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()>;
+    ) -> Result<(), Self::Error>;
 
     fn fill_rect(
         &mut self,
@@ -26,35 +30,46 @@ pub trait Renderer {
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()>;
+    ) -> Result<(), Self::Error>;
 
     fn draw_poly(
         &mut self,
         vertices: &[Vec2<Pixel>],
         stroke_width: Float<Pixel>,
         color: Color,
-    ) -> RenderResult<()>;
+    ) -> Result<(), Self::Error>;
 
-    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> RenderResult<()>;
+    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> Result<(), Self::Error>;
 
-    fn draw_text(&mut self, text: GlyphRun<'_, Color>, position: Vec2<Pixel>) -> RenderResult<()>;
+    fn draw_text(
+        &mut self,
+        text: GlyphRun<'_, Color>,
+        position: Vec2<Pixel>,
+    ) -> Result<(), Self::Error>;
 }
 
-pub struct RenderContext<'a> {
+pub struct RenderContext<'a, R: Renderer> {
     pub position: Vec2<Pixel>,
     pub size: Vec2<Pixel>,
     pub style: &'a ComputedStyle,
     pub persistent_state: Option<&'a PersistentState>,
-    pub renderer: &'a mut dyn Renderer,
+    pub renderer: &'a mut R,
 }
 
-pub type NodeContentRenderer = fn(RenderContext) -> RenderResult<()>;
+pub trait NodeRenderer: 'static {
+    type Renderer: Renderer;
+
+    fn render(
+        &self,
+        context: RenderContext<'_, Self::Renderer>,
+    ) -> Result<(), <Self::Renderer as Renderer>::Error>;
+}
 
 fn draw_tree<R: Renderer>(
     tree: TreeRef<'_, Node, Shared>,
-    data: &ByorGuiData,
+    data: &ByorGuiData<R>,
     renderer: &mut R,
-) -> RenderResult<()> {
+) -> Result<(), R::Error> {
     let TreeRef {
         parent: node,
         descendants,
@@ -79,7 +94,7 @@ fn draw_tree<R: Renderer>(
     let (clip_position, clip_size) = node.clip_bounds();
     renderer.push_clip_rect(clip_position, clip_size)?;
 
-    if let Some(node_renderer) = node.renderer {
+    if let Some(node_renderer_id) = node.renderer.expand() {
         let context = RenderContext {
             position: node.position,
             size: node.style.fixed_size,
@@ -88,10 +103,10 @@ fn draw_tree<R: Renderer>(
             renderer,
         };
 
-        node_renderer(context)?;
+        data.renderers[node_renderer_id].render(context)?;
     }
 
-    if let Some(&text_layout_id) = node.text_layout.as_ref() {
+    if let Some(text_layout_id) = node.text_layout.expand() {
         let text_layout = &data.text_layouts[text_layout_id];
 
         for line in text_layout.lines() {
@@ -126,8 +141,8 @@ fn draw_tree<R: Renderer>(
     Ok(())
 }
 
-impl ByorGui {
-    pub fn render<R: Renderer>(&mut self, renderer: &mut R) -> RenderResult<()> {
+impl<R: Renderer> ByorGui<R> {
+    pub fn render(&mut self, renderer: &mut R) -> Result<(), R::Error> {
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
             draw_tree(tree, &self.data, renderer)?;

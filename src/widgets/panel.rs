@@ -18,15 +18,15 @@ impl WidgetData for FlexPanelData {
     }
 }
 
-impl ContainerWidgetData for FlexPanelData {
+impl<Renderer: rendering::Renderer> ContainerWidgetData<Renderer> for FlexPanelData {
     type ShowResult<T> = T;
 
     fn show<R>(
         self,
-        gui: &mut ByorGuiContext<'_>,
+        gui: &mut ByorGuiContext<'_, Renderer>,
         uid: MaybeUid,
         style: Style,
-        contents: impl FnOnce(ByorGuiContext<'_>) -> R,
+        contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Self::ShowResult<R>> {
         Ok(gui
             .insert_node(uid.into(), &style, NodeContents::builder(contents))?

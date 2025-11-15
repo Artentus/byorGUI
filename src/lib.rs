@@ -21,6 +21,7 @@ use smallbox::smallbox;
 use std::any::Any;
 use std::fmt;
 use std::hash::Hasher;
+use std::num::NonZeroU64;
 use style::computed::*;
 use style::*;
 use theme::Theme;
@@ -80,7 +81,7 @@ fn point_in_rect<U: Unit>(point: Vec2<U>, position: Vec2<U>, size: Vec2<U>) -> b
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Uid(u64);
+pub struct Uid(NonZeroU64);
 
 #[must_use]
 #[inline]
@@ -114,30 +115,42 @@ impl std::hash::Hasher for UidHasher {
     }
 }
 
+#[must_use]
+#[inline]
+const fn hash_fallback(hash: u64) -> NonZeroU64 {
+    // In case the astronomically small chance for 0 does occur, simply use 1 instead.
+    // This does create more collisions, but the chance for both to occur simultaneously
+    // is even more astronomically low, so we'll take it.
+    match NonZeroU64::new(hash) {
+        Some(hash) => hash,
+        None => NonZeroU64::MIN,
+    }
+}
+
 impl Uid {
     #[must_use]
     pub const fn from_array<const N: usize>(data: &[u8; N]) -> Self {
         let seed = uid_hash(0, &N.to_ne_bytes());
-        Self(uid_hash(seed, data))
+        Self(hash_fallback(uid_hash(seed, data)))
     }
 
     #[must_use]
     pub const fn from_slice(data: &[u8]) -> Self {
         let seed = uid_hash(0, &data.len().to_ne_bytes());
-        Self(uid_hash(seed, data))
+        Self(hash_fallback(uid_hash(seed, data)))
     }
 
     #[must_use]
     pub fn new(data: impl std::hash::Hash) -> Self {
         let mut hasher = UidHasher::default();
         data.hash(&mut hasher);
-        Self(hasher.finish())
+        Self(hash_fallback(hasher.finish()))
     }
 
     #[must_use]
     pub const fn concat(self, other: Self) -> Self {
-        let low_bytes = self.0.to_ne_bytes();
-        let high_bytes = other.0.to_ne_bytes();
+        let low_bytes = self.0.get().to_ne_bytes();
+        let high_bytes = other.0.get().to_ne_bytes();
         let bytes = [
             low_bytes[0],
             low_bytes[1],
@@ -157,7 +170,7 @@ impl Uid {
             high_bytes[7],
         ];
 
-        Self(uid_hash(0, &bytes))
+        Self(hash_fallback(uid_hash(0, &bytes)))
     }
 }
 
@@ -169,7 +182,7 @@ impl IntKey for Uid {
 
     #[inline]
     fn into_int(self) -> Self::Int {
-        self.0
+        self.0.get()
     }
 }
 

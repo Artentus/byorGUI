@@ -23,11 +23,13 @@ macro_rules! unit {
     };
 }
 
-unit!(Pixel("px"));
+unit!(Pixel(" px"));
 
-unit!(Point("pt"));
+unit!(Point(" pt"));
 
-unit!(EM("em"));
+unit!(EM(" em"));
+
+unit!(Percent("%"));
 
 #[repr(transparent)]
 pub struct Float<U: Unit> {
@@ -109,6 +111,27 @@ impl From<f32> for Float<EM> {
     }
 }
 
+impl Float<Percent> {
+    #[must_use]
+    #[inline]
+    pub const fn percent(value: f32) -> Self {
+        Self::new(value)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn to_pixel(self, one_hundred_percent_value: Float<Pixel>) -> Float<Pixel> {
+        one_hundred_percent_value * (self.value / 100.0)
+    }
+}
+
+impl From<f32> for Float<Percent> {
+    #[inline]
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
 pub trait IntoFloat {
     #[must_use]
     fn px(self) -> Float<Pixel>;
@@ -118,6 +141,9 @@ pub trait IntoFloat {
 
     #[must_use]
     fn em(self) -> Float<EM>;
+
+    #[must_use]
+    fn percent(self) -> Float<Percent>;
 }
 
 macro_rules! impl_into_float {
@@ -136,6 +162,11 @@ macro_rules! impl_into_float {
             #[inline]
             fn em(self) -> Float<EM> {
                 Float::em(self as f32)
+            }
+
+            #[inline]
+            fn percent(self) -> Float<Percent> {
+                Float::percent(self as f32)
             }
         }
     };
@@ -175,13 +206,13 @@ impl<U: Unit> Clone for Float<U> {
 
 impl<U: Unit> fmt::Debug for Float<U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.value, U::SUFFIX)
+        write!(f, "{}{}", self.value, U::SUFFIX)
     }
 }
 
 impl<U: Unit> fmt::Display for Float<U> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.value, U::SUFFIX)
+        write!(f, "{}{}", self.value, U::SUFFIX)
     }
 }
 

@@ -6,6 +6,7 @@ use byor_gui::widgets::*;
 use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
+use vello::wgpu;
 use vello::{Renderer, RendererOptions, Scene};
 use winit::event::{ElementState, Modifiers, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -318,13 +319,13 @@ fn create_theme(theme: &mut Theme) {
         },
     );
 
-    let button_background: PropertyFn<Color> = |_, input_state| {
+    let button_background: PropertyFn<Brush> = |_, input_state| {
         if input_state.pressed(MouseButtons::PRIMARY) {
-            Color::greyscale(96)
+            Color::greyscale(96).into()
         } else if input_state.is_hovered() {
-            Color::greyscale(80)
+            Color::greyscale(80).into()
         } else {
-            Color::greyscale(64)
+            Color::greyscale(64).into()
         }
     };
 
@@ -426,6 +427,8 @@ fn create_theme(theme: &mut Theme) {
         Popup::TYPE_CLASS,
         &style! {
             background: Color { r: 40, g: 40, b: 40, a: 255 },
+            drop_shadow_width: 10.pt(),
+            drop_shadow_color: Color { r: 0, g: 0, b: 0, a: 128 },
         },
     );
 }

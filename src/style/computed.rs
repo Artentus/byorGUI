@@ -1,11 +1,25 @@
 use super::*;
 
+impl RelativeMeasurement {
+    #[must_use]
+    #[inline]
+    fn precompute(self, pixel_per_point: f32, pixel_per_em: f32) -> (bool, f32) {
+        match self {
+            Self::Pixel(value) => (false, value.value()),
+            Self::Point(value) => (false, value.to_pixel(pixel_per_point).value()),
+            Self::EM(value) => (false, value.to_pixel(pixel_per_em).value()),
+            Self::Percent(value) => (true, value.value()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Specifier)]
 #[bits = 2]
 pub(crate) enum ComputedSizing {
     FitContent,
     Grow,
     Fixed,
+    Percent,
 }
 
 impl Sizing {
@@ -60,6 +74,226 @@ impl Padding {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum PrecomputedBrush {
+    Solid(Color),
+    LinearGradient {
+        start_x_is_percent: bool,
+        start_y_is_percent: bool,
+        end_x_is_percent: bool,
+        end_y_is_percent: bool,
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        stops: SmallVec<[GradientStop; 4]>,
+    },
+    RadialGradient {
+        center_x_is_percent: bool,
+        center_y_is_percent: bool,
+        radius_x_is_percent: bool,
+        radius_y_is_percent: bool,
+        center_x: f32,
+        center_y: f32,
+        radius_x: f32,
+        radius_y: f32,
+        stops: SmallVec<[GradientStop; 4]>,
+    },
+}
+
+impl Brush {
+    #[must_use]
+    #[inline]
+    fn precompute(&self, pixel_per_point: f32, pixel_per_em: f32) -> PrecomputedBrush {
+        match self {
+            &Self::Solid(color) => PrecomputedBrush::Solid(color),
+            Self::LinearGradient {
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                stops,
+            } => {
+                let (start_x_is_percent, start_x) =
+                    start_x.precompute(pixel_per_point, pixel_per_em);
+                let (start_y_is_percent, start_y) =
+                    start_y.precompute(pixel_per_point, pixel_per_em);
+                let (end_x_is_percent, end_x) = end_x.precompute(pixel_per_point, pixel_per_em);
+                let (end_y_is_percent, end_y) = end_y.precompute(pixel_per_point, pixel_per_em);
+
+                PrecomputedBrush::LinearGradient {
+                    start_x_is_percent,
+                    start_y_is_percent,
+                    end_x_is_percent,
+                    end_y_is_percent,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    stops: stops.clone(),
+                }
+            }
+            Self::RadialGradient {
+                center_x,
+                center_y,
+                radius_x,
+                radius_y,
+                stops,
+            } => {
+                let (center_x_is_percent, center_x) =
+                    center_x.precompute(pixel_per_point, pixel_per_em);
+                let (center_y_is_percent, center_y) =
+                    center_y.precompute(pixel_per_point, pixel_per_em);
+                let (radius_x_is_percent, radius_x) =
+                    radius_x.precompute(pixel_per_point, pixel_per_em);
+                let (radius_y_is_percent, radius_y) =
+                    radius_y.precompute(pixel_per_point, pixel_per_em);
+
+                PrecomputedBrush::RadialGradient {
+                    center_x_is_percent,
+                    center_y_is_percent,
+                    radius_x_is_percent,
+                    radius_y_is_percent,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    stops: stops.clone(),
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComputedBrush<'a> {
+    Solid(Color),
+    LinearGradient {
+        start: Vec2<Pixel>,
+        end: Vec2<Pixel>,
+        stops: &'a [GradientStop],
+    },
+    RadialGradient {
+        center: Vec2<Pixel>,
+        radius: Vec2<Pixel>,
+        stops: &'a [GradientStop],
+    },
+}
+
+impl From<Color> for ComputedBrush<'_> {
+    #[inline]
+    fn from(color: Color) -> Self {
+        Self::Solid(color)
+    }
+}
+
+impl ComputedBrush<'_> {
+    #[must_use]
+    #[inline]
+    pub fn offset(self, offset: Vec2<Pixel>) -> Self {
+        match self {
+            Self::Solid(color) => Self::Solid(color),
+            Self::LinearGradient { start, end, stops } => Self::LinearGradient {
+                start: start + offset,
+                end: end + offset,
+                stops,
+            },
+            Self::RadialGradient {
+                center,
+                radius,
+                stops,
+            } => Self::RadialGradient {
+                center: center + offset,
+                radius,
+                stops,
+            },
+        }
+    }
+}
+
+impl PrecomputedBrush {
+    #[must_use]
+    fn as_computed(&self, one_hundred_percent_value: Vec2<Pixel>) -> ComputedBrush<'_> {
+        match self {
+            &Self::Solid(color) => ComputedBrush::Solid(color),
+            &Self::LinearGradient {
+                start_x_is_percent,
+                start_y_is_percent,
+                end_x_is_percent,
+                end_y_is_percent,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                ref stops,
+            } => ComputedBrush::LinearGradient {
+                start: Vec2 {
+                    x: if start_x_is_percent {
+                        start_x.percent().to_pixel(one_hundred_percent_value.x)
+                    } else {
+                        start_x.px()
+                    },
+                    y: if start_y_is_percent {
+                        start_y.percent().to_pixel(one_hundred_percent_value.y)
+                    } else {
+                        start_y.px()
+                    },
+                },
+                end: Vec2 {
+                    x: if end_x_is_percent {
+                        end_x.percent().to_pixel(one_hundred_percent_value.x)
+                    } else {
+                        end_x.px()
+                    },
+                    y: if end_y_is_percent {
+                        end_y.percent().to_pixel(one_hundred_percent_value.y)
+                    } else {
+                        end_y.px()
+                    },
+                },
+                stops: stops.as_ref(),
+            },
+            &Self::RadialGradient {
+                center_x_is_percent,
+                center_y_is_percent,
+                radius_x_is_percent,
+                radius_y_is_percent,
+                center_x,
+                center_y,
+                radius_x,
+                radius_y,
+                ref stops,
+            } => ComputedBrush::RadialGradient {
+                center: Vec2 {
+                    x: if center_x_is_percent {
+                        center_x.percent().to_pixel(one_hundred_percent_value.x)
+                    } else {
+                        center_x.px()
+                    },
+                    y: if center_y_is_percent {
+                        center_y.percent().to_pixel(one_hundred_percent_value.y)
+                    } else {
+                        center_y.px()
+                    },
+                },
+                radius: Vec2 {
+                    x: if radius_x_is_percent {
+                        radius_x.percent().to_pixel(one_hundred_percent_value.x)
+                    } else {
+                        radius_x.px()
+                    },
+                    y: if radius_y_is_percent {
+                        radius_y.percent().to_pixel(one_hundred_percent_value.y)
+                    } else {
+                        radius_y.px()
+                    },
+                },
+                stops: stops.as_ref(),
+            },
+        }
+    }
+}
+
 struct ComputedFont {
     family: FontStack<'static>,
     size: Float<Pixel>,
@@ -105,10 +339,12 @@ pub struct ComputedStyle {
     flex_ratio: f32,
     padding: Arc<ComputedPadding>,
     child_spacing: Float<Pixel>,
-    background: Color,
+    background: Arc<PrecomputedBrush>,
     corner_radius: Float<Pixel>,
     border_width: Float<Pixel>,
     border_color: Color,
+    drop_shadow_width: Float<Pixel>,
+    drop_shadow_color: Color,
     font: Arc<ComputedFont>,
     text_color: Color,
 
@@ -143,6 +379,12 @@ impl ComputedStyle {
     #[inline]
     pub fn border_width(&self) -> Float<Pixel> {
         self.border_width
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn drop_shadow_width(&self) -> Float<Pixel> {
+        self.drop_shadow_width
     }
 
     #[must_use]
@@ -222,14 +464,20 @@ impl ComputedStyle {
 
     #[must_use]
     #[inline]
-    pub(crate) fn background(&self) -> Color {
-        self.background
+    pub(crate) fn background(&self) -> ComputedBrush<'_> {
+        self.background.as_computed(self.fixed_size)
     }
 
     #[must_use]
     #[inline]
     pub(crate) fn border_color(&self) -> Color {
         self.border_color
+    }
+
+    #[must_use]
+    #[inline]
+    pub(crate) fn drop_shadow_color(&self) -> Color {
+        self.drop_shadow_color
     }
 
     #[must_use]
@@ -271,6 +519,8 @@ macro_rules! all_match {
 
 static INITIAL_COMPUTED_PADDING: LazyLock<Arc<ComputedPadding>> =
     LazyLock::new(|| Arc::new(ComputedPadding::default()));
+static INITIAL_COMPUTED_BACKGROUND: LazyLock<Arc<PrecomputedBrush>> =
+    LazyLock::new(|| Arc::new(PrecomputedBrush::Solid(Color::TRANSPARENT)));
 static INITIAL_COMPUTED_FONT: LazyLock<Arc<ComputedFont>> =
     LazyLock::new(|| Arc::new(ComputedFont::default()));
 
@@ -321,6 +571,9 @@ pub(crate) fn compute_style(
     let border_width = cascaded_style
         .border_width
         .to_pixel(scale_factor, font_size.value());
+    let drop_shadow_width = cascaded_style
+        .drop_shadow_width
+        .to_pixel(scale_factor, font_size.value());
 
     let min_size = Vec2 {
         x: min_width,
@@ -350,6 +603,23 @@ pub(crate) fn compute_style(
             cascaded_style
                 .padding
                 .compute(scale_factor, font_size.value()),
+        ),
+    };
+
+    let background = match &style.background {
+        // The background property uses "Initial" fallback
+        Property::Unspecified | Property::Initial => Arc::clone(&*INITIAL_COMPUTED_BACKGROUND),
+        Property::Inherit => {
+            if let Some(parent_style) = parent_style {
+                Arc::clone(&parent_style.background)
+            } else {
+                Arc::clone(&*INITIAL_COMPUTED_BACKGROUND)
+            }
+        }
+        Property::Value(_) | Property::Compute(_) => Arc::new(
+            cascaded_style
+                .background
+                .precompute(scale_factor, font_size.value()),
         ),
     };
 
@@ -406,10 +676,12 @@ pub(crate) fn compute_style(
         flex_ratio: cascaded_style.flex_ratio,
         padding,
         child_spacing,
-        background: cascaded_style.background,
+        background,
         corner_radius,
         border_width,
         border_color: cascaded_style.border_color,
+        drop_shadow_width,
+        drop_shadow_color: cascaded_style.drop_shadow_color,
         font,
         text_color: cascaded_style.text_color,
 

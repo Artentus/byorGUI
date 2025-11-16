@@ -4,102 +4,118 @@ pub mod computed;
 use super::*;
 use byor_gui_procmacro::StyleBuilder;
 use modular_bitfield::prelude::*;
-pub use parley::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
 use std::fmt;
 use std::ops::{Div, DivAssign, Mul, MulAssign};
 use std::sync::{Arc, LazyLock};
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Measurement {
-    Pixel(Float<Pixel>),
-    Point(Float<Point>),
-    EM(Float<EM>),
-}
+pub use parley::{FontFamily, FontStack, FontStyle, FontWeight, FontWidth, GenericFamily};
+pub use smallvec::{SmallVec, smallvec};
 
-impl fmt::Debug for Measurement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pixel(value) => fmt::Debug::fmt(value, f),
-            Self::Point(value) => fmt::Debug::fmt(value, f),
-            Self::EM(value) => fmt::Debug::fmt(value, f),
+macro_rules! def_measurement {
+    ($name:ident[$($unit:ident),+ $(,)?]) => {
+        #[derive(Clone, Copy, PartialEq)]
+        pub enum $name {
+            $($unit(Float<$unit>),)+
         }
-    }
-}
 
-impl fmt::Display for Measurement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pixel(value) => fmt::Display::fmt(value, f),
-            Self::Point(value) => fmt::Display::fmt(value, f),
-            Self::EM(value) => fmt::Display::fmt(value, f),
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(Self::$unit(value) => fmt::Debug::fmt(value, f),)+
+                }
+            }
         }
-    }
-}
 
-macro_rules! impl_measurement_from_float {
-    ($($unit:ident),* $(,)?) => {
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(Self::$unit(value) => fmt::Display::fmt(value, f),)+
+                }
+            }
+        }
+
         $(
-            impl From<Float<$unit>> for Measurement {
+            impl From<Float<$unit>> for $name {
                 #[inline]
                 fn from(value: Float<$unit>) -> Self {
                     Self::$unit(value)
                 }
             }
         )*
+
+        impl Mul<f32> for $name {
+            type Output = Self;
+
+            #[inline]
+            fn mul(self, rhs: f32) -> Self::Output {
+                match self {
+                    $(Self::$unit(value) => Self::$unit(value * rhs),)+
+                }
+            }
+        }
+
+        impl MulAssign<f32> for $name {
+            #[inline]
+            fn mul_assign(&mut self, rhs: f32) {
+                *self = *self * rhs;
+            }
+        }
+
+        impl Div<f32> for $name {
+            type Output = Self;
+
+            #[inline]
+            fn div(self, rhs: f32) -> Self::Output {
+                match self {
+                    $(Self::$unit(value) => Self::$unit(value / rhs),)+
+                }
+            }
+        }
+
+        impl DivAssign<f32> for $name {
+            #[inline]
+            fn div_assign(&mut self, rhs: f32) {
+                *self = *self / rhs;
+            }
+        }
     };
 }
 
-impl_measurement_from_float!(Pixel, Point, EM);
+def_measurement! {
+    AbsoluteMeasurement[Pixel, Point, EM]
+}
 
-impl Measurement {
+impl AbsoluteMeasurement {
     #[must_use]
     #[inline]
     pub fn to_pixel(self, pixel_per_point: f32, pixel_per_em: f32) -> Float<Pixel> {
         match self {
-            Measurement::Pixel(value) => value,
-            Measurement::Point(value) => value.to_pixel(pixel_per_point),
-            Measurement::EM(value) => value.to_pixel(pixel_per_em),
+            Self::Pixel(value) => value,
+            Self::Point(value) => value.to_pixel(pixel_per_point),
+            Self::EM(value) => value.to_pixel(pixel_per_em),
         }
     }
 }
 
-impl Mul<f32> for Measurement {
-    type Output = Self;
+def_measurement! {
+    RelativeMeasurement[Pixel, Point, EM, Percent]
+}
 
+impl RelativeMeasurement {
+    #[must_use]
     #[inline]
-    fn mul(self, rhs: f32) -> Self::Output {
+    pub fn to_pixel(
+        self,
+        pixel_per_point: f32,
+        pixel_per_em: f32,
+        one_hundred_percent_value: Float<Pixel>,
+    ) -> Float<Pixel> {
         match self {
-            Measurement::Pixel(value) => Measurement::Pixel(value * rhs),
-            Measurement::Point(value) => Measurement::Point(value * rhs),
-            Measurement::EM(value) => Measurement::EM(value * rhs),
+            Self::Pixel(value) => value,
+            Self::Point(value) => value.to_pixel(pixel_per_point),
+            Self::EM(value) => value.to_pixel(pixel_per_em),
+            Self::Percent(value) => value.to_pixel(one_hundred_percent_value),
         }
-    }
-}
-
-impl MulAssign<f32> for Measurement {
-    #[inline]
-    fn mul_assign(&mut self, rhs: f32) {
-        *self = *self * rhs;
-    }
-}
-
-impl Div<f32> for Measurement {
-    type Output = Self;
-
-    #[inline]
-    fn div(self, rhs: f32) -> Self::Output {
-        match self {
-            Measurement::Pixel(value) => Measurement::Pixel(value / rhs),
-            Measurement::Point(value) => Measurement::Point(value / rhs),
-            Measurement::EM(value) => Measurement::EM(value / rhs),
-        }
-    }
-}
-
-impl DivAssign<f32> for Measurement {
-    #[inline]
-    fn div_assign(&mut self, rhs: f32) {
-        *self = *self / rhs;
     }
 }
 
@@ -108,10 +124,10 @@ pub enum Sizing {
     #[default]
     FitContent,
     Grow,
-    Fixed(Measurement),
+    Fixed(AbsoluteMeasurement),
 }
 
-impl<T: Into<Measurement>> From<T> for Sizing {
+impl<T: Into<AbsoluteMeasurement>> From<T> for Sizing {
     #[inline]
     fn from(value: T) -> Self {
         Self::Fixed(value.into())
@@ -120,18 +136,18 @@ impl<T: Into<Measurement>> From<T> for Sizing {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Padding {
-    pub left: Measurement,
-    pub right: Measurement,
-    pub top: Measurement,
-    pub bottom: Measurement,
+    pub left: AbsoluteMeasurement,
+    pub right: AbsoluteMeasurement,
+    pub top: AbsoluteMeasurement,
+    pub bottom: AbsoluteMeasurement,
 }
 
 impl Padding {
     pub const ZERO: Self = Self {
-        left: Measurement::Pixel(Float::px(0.0)),
-        right: Measurement::Pixel(Float::px(0.0)),
-        top: Measurement::Pixel(Float::px(0.0)),
-        bottom: Measurement::Pixel(Float::px(0.0)),
+        left: AbsoluteMeasurement::Pixel(Float::px(0.0)),
+        right: AbsoluteMeasurement::Pixel(Float::px(0.0)),
+        top: AbsoluteMeasurement::Pixel(Float::px(0.0)),
+        bottom: AbsoluteMeasurement::Pixel(Float::px(0.0)),
     };
 }
 
@@ -142,7 +158,7 @@ impl Default for Padding {
     }
 }
 
-impl<T: Into<Measurement>> From<T> for Padding {
+impl<T: Into<AbsoluteMeasurement>> From<T> for Padding {
     #[inline]
     fn from(value: T) -> Self {
         let value = value.into();
@@ -156,7 +172,7 @@ impl<T: Into<Measurement>> From<T> for Padding {
     }
 }
 
-impl<T: Into<Measurement>> From<[T; 2]> for Padding {
+impl<T: Into<AbsoluteMeasurement>> From<[T; 2]> for Padding {
     #[inline]
     fn from(value: [T; 2]) -> Self {
         let value = value.map(Into::into);
@@ -170,7 +186,7 @@ impl<T: Into<Measurement>> From<[T; 2]> for Padding {
     }
 }
 
-impl<T: Into<Measurement>> From<[T; 4]> for Padding {
+impl<T: Into<AbsoluteMeasurement>> From<[T; 4]> for Padding {
     #[inline]
     fn from(value: [T; 4]) -> Self {
         let value = value.map(Into::into);
@@ -186,8 +202,8 @@ impl<T: Into<Measurement>> From<[T; 4]> for Padding {
 
 impl<T1, T2> From<(T1, T2)> for Padding
 where
-    T1: Into<Measurement>,
-    T2: Into<Measurement>,
+    T1: Into<AbsoluteMeasurement>,
+    T2: Into<AbsoluteMeasurement>,
 {
     #[inline]
     fn from(value: (T1, T2)) -> Self {
@@ -205,10 +221,10 @@ where
 
 impl<T1, T2, T3, T4> From<(T1, T2, T3, T4)> for Padding
 where
-    T1: Into<Measurement>,
-    T2: Into<Measurement>,
-    T3: Into<Measurement>,
-    T4: Into<Measurement>,
+    T1: Into<AbsoluteMeasurement>,
+    T2: Into<AbsoluteMeasurement>,
+    T3: Into<AbsoluteMeasurement>,
+    T4: Into<AbsoluteMeasurement>,
 {
     #[inline]
     fn from(value: (T1, T2, T3, T4)) -> Self {
@@ -331,6 +347,38 @@ impl Default for Color {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GradientStop {
+    pub color: Color,
+    pub offset: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Brush {
+    Solid(Color),
+    LinearGradient {
+        start_x: RelativeMeasurement,
+        start_y: RelativeMeasurement,
+        end_x: RelativeMeasurement,
+        end_y: RelativeMeasurement,
+        stops: SmallVec<[GradientStop; 4]>,
+    },
+    RadialGradient {
+        center_x: RelativeMeasurement,
+        center_y: RelativeMeasurement,
+        radius_x: RelativeMeasurement,
+        radius_y: RelativeMeasurement,
+        stops: SmallVec<[GradientStop; 4]>,
+    },
+}
+
+impl From<Color> for Brush {
+    #[inline]
+    fn from(color: Color) -> Self {
+        Self::Solid(color)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupPosition {
     BeforeParent,
@@ -345,8 +393,8 @@ pub enum FloatPosition {
     Cursor,
     CursorFixed,
     Fixed {
-        x: Measurement,
-        y: Measurement,
+        x: AbsoluteMeasurement,
+        y: AbsoluteMeasurement,
     },
     Popup {
         x: PopupPosition,
@@ -584,20 +632,23 @@ macro_rules! define_style {
 const ROOT_FONT_SIZE: Float<Pixel> = Float::px(16.0);
 
 pub const INITIAL_SIZE: Sizing = Sizing::FitContent;
-pub const INITIAL_MIN_SIZE: Measurement = Measurement::Pixel(Float::px(0.0));
-pub const INITIAL_MAX_SIZE: Measurement = Measurement::Pixel(Float::px(f32::MAX));
+pub const INITIAL_MIN_SIZE: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(0.0));
+pub const INITIAL_MAX_SIZE: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(f32::MAX));
 pub const INITIAL_FLEX_RATIO: f32 = 1.0;
 pub const INITIAL_PADDING: Padding = Padding::ZERO;
-pub const INITIAL_CHILD_SPACING: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_CHILD_SPACING: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(0.0));
 pub const INITIAL_LAYOUT_DIRECTION: Direction = Direction::LeftToRight;
 pub const INITIAL_ALIGNMENT: Alignment = Alignment::Start;
-pub const INITIAL_BACKGROUND: Color = Color::TRANSPARENT;
-pub const INITIAL_CORNER_RADIUS: Measurement = Measurement::Pixel(Float::px(0.0));
-pub const INITIAL_BORDER_WIDTH: Measurement = Measurement::Pixel(Float::px(0.0));
+pub const INITIAL_BACKGROUND: Brush = Brush::Solid(Color::TRANSPARENT);
+pub const INITIAL_CORNER_RADIUS: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(0.0));
+pub const INITIAL_BORDER_WIDTH: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(0.0));
 pub const INITIAL_BORDER_COLOR: Color = Color::TRANSPARENT;
+pub const INITIAL_DROP_SHADOW_WIDTH: AbsoluteMeasurement =
+    AbsoluteMeasurement::Pixel(Float::px(0.0));
+pub const INITIAL_DROP_SHADOW_COLOR: Color = Color::TRANSPARENT;
 pub const INITIAL_FONT_FAMILY: FontStack<'static> =
     FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi));
-pub const INITIAL_FONT_SIZE: Measurement = Measurement::Pixel(ROOT_FONT_SIZE);
+pub const INITIAL_FONT_SIZE: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(ROOT_FONT_SIZE);
 pub const INITIAL_FONT_STYLE: FontStyle = FontStyle::Normal;
 pub const INITIAL_FONT_WEIGHT: FontWeight = FontWeight::NORMAL;
 pub const INITIAL_FONT_WIDTH: FontWidth = FontWidth::NORMAL;
@@ -612,22 +663,24 @@ pub const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextA
 define_style! {
     [Initial] width: Sizing { INITIAL_SIZE },
     [Initial] height: Sizing { INITIAL_SIZE },
-    [Initial] min_width: Measurement { INITIAL_MIN_SIZE },
-    [Initial] min_height: Measurement { INITIAL_MIN_SIZE },
-    [Initial] max_width: Measurement { INITIAL_MAX_SIZE },
-    [Initial] max_height: Measurement { INITIAL_MAX_SIZE },
+    [Initial] min_width: AbsoluteMeasurement { INITIAL_MIN_SIZE },
+    [Initial] min_height: AbsoluteMeasurement { INITIAL_MIN_SIZE },
+    [Initial] max_width: AbsoluteMeasurement { INITIAL_MAX_SIZE },
+    [Initial] max_height: AbsoluteMeasurement { INITIAL_MAX_SIZE },
     [Initial] flex_ratio: f32 { INITIAL_FLEX_RATIO },
     [Initial] padding: Padding { INITIAL_PADDING },
-    [Initial] child_spacing: Measurement { INITIAL_CHILD_SPACING },
+    [Initial] child_spacing: AbsoluteMeasurement { INITIAL_CHILD_SPACING },
     [Initial] layout_direction: Direction { INITIAL_LAYOUT_DIRECTION },
     [Initial] child_alignment: Alignment { INITIAL_ALIGNMENT },
     [Initial] cross_axis_alignment: Alignment { INITIAL_ALIGNMENT },
-    [Initial] background: Color { INITIAL_BACKGROUND },
-    [Initial] corner_radius: Measurement { INITIAL_CORNER_RADIUS },
-    [Initial] border_width: Measurement { INITIAL_BORDER_WIDTH },
+    [Initial] background: Brush { INITIAL_BACKGROUND },
+    [Initial] corner_radius: AbsoluteMeasurement { INITIAL_CORNER_RADIUS },
+    [Initial] border_width: AbsoluteMeasurement { INITIAL_BORDER_WIDTH },
     [Initial] border_color: Color { INITIAL_BORDER_COLOR },
+    [Initial] drop_shadow_width: AbsoluteMeasurement { INITIAL_DROP_SHADOW_WIDTH },
+    [Initial] drop_shadow_color: Color { INITIAL_DROP_SHADOW_COLOR },
     [Inherit] font_family: FontStack<'static> { INITIAL_FONT_FAMILY },
-    [Inherit] font_size: Measurement { INITIAL_FONT_SIZE },
+    [Inherit] font_size: AbsoluteMeasurement { INITIAL_FONT_SIZE },
     [Inherit] font_style: FontStyle { INITIAL_FONT_STYLE },
     [Inherit] font_weight: FontWeight { INITIAL_FONT_WEIGHT },
     [Inherit] font_width: FontWidth { INITIAL_FONT_WIDTH },

@@ -1,8 +1,8 @@
 use crate::rendering::*;
 use crate::*;
 use vello::kurbo::{self, Affine, Line, PathEl, Rect, Shape, Stroke};
-use vello::peniko::color::{AlphaColor, Srgb};
-use vello::peniko::{self, Fill};
+use vello::peniko::color::{AlphaColor, DynamicColor, Srgb};
+use vello::peniko::{self, Fill, Gradient};
 
 impl From<Vec2<Pixel>> for kurbo::Point {
     #[inline]
@@ -36,8 +36,47 @@ impl From<Vec2<Pixel>> for kurbo::Size {
 
 impl From<Color> for AlphaColor<Srgb> {
     #[inline]
-    fn from(value: Color) -> Self {
-        Self::from_rgba8(value.r, value.g, value.b, value.a)
+    fn from(color: Color) -> Self {
+        Self::from_rgba8(color.r, color.g, color.b, color.a)
+    }
+}
+
+impl From<Color> for DynamicColor {
+    #[inline]
+    fn from(color: Color) -> Self {
+        Self::from_alpha_color::<Srgb>(color.into())
+    }
+}
+
+impl From<GradientStop> for peniko::ColorStop {
+    #[inline]
+    fn from(stop: GradientStop) -> Self {
+        peniko::ColorStop {
+            offset: stop.offset,
+            color: stop.color.into(),
+        }
+    }
+}
+
+fn convert_brush(brush: ComputedBrush) -> (peniko::Brush, Option<Affine>) {
+    match brush {
+        ComputedBrush::Solid(color) => (peniko::Brush::Solid(color.into()), None),
+        ComputedBrush::LinearGradient { start, end, stops } => (
+            peniko::Brush::Gradient(Gradient::new_linear(start, end).with_stops(stops)),
+            None,
+        ),
+        ComputedBrush::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => {
+            let gradient = Gradient::new_radial(kurbo::Point::ZERO, 1.0).with_stops(stops);
+            let transform =
+                Affine::scale_non_uniform(radius.x.value() as f64, radius.y.value() as f64)
+                    .then_translate((center).into());
+
+            (peniko::Brush::Gradient(gradient), Some(transform))
+        }
     }
 }
 
@@ -140,7 +179,7 @@ impl Renderer for vello::Scene {
         stroke_width: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error> {
-        if (color.a > 0) && (stroke_width.value() > 0.0) {
+        if color.a > 0 {
             let rect = Rect::from_origin_size(position, size);
             let brush = peniko::Brush::Solid(color.into());
 
@@ -171,23 +210,31 @@ impl Renderer for vello::Scene {
         position: Vec2<Pixel>,
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
-        color: Color,
+        brush: ComputedBrush,
     ) -> Result<(), Self::Error> {
-        if color.a > 0 {
-            let rect = Rect::from_origin_size(position, size);
-            let brush = peniko::Brush::Solid(color.into());
+        if let ComputedBrush::Solid(Color { a: 0, .. }) = brush {
+            return Ok(());
+        };
 
-            if corner_radius == 0.px() {
-                self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &rect);
-            } else {
-                self.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    &brush,
-                    None,
-                    &rect.to_rounded_rect(corner_radius.value() as f64),
-                );
-            }
+        let rect = Rect::from_origin_size(position, size);
+        let (brush, brush_transform) = convert_brush(brush);
+
+        if corner_radius == 0.px() {
+            self.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &brush,
+                brush_transform,
+                &rect,
+            );
+        } else {
+            self.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &brush,
+                brush_transform,
+                &rect.to_rounded_rect(corner_radius.value() as f64),
+            );
         }
 
         Ok(())
@@ -199,7 +246,7 @@ impl Renderer for vello::Scene {
         stroke_width: Float<Pixel>,
         color: Color,
     ) -> Result<(), Self::Error> {
-        if (color.a > 0) && (stroke_width.value() > 0.0) {
+        if color.a > 0 {
             let poly = Polygon { vertices };
             let brush = peniko::Brush::Solid(color.into());
 
@@ -215,13 +262,25 @@ impl Renderer for vello::Scene {
         Ok(())
     }
 
-    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> Result<(), Self::Error> {
-        if color.a > 0 {
-            let poly = Polygon { vertices };
-            let brush = peniko::Brush::Solid(color.into());
+    fn fill_poly(
+        &mut self,
+        vertices: &[Vec2<Pixel>],
+        brush: ComputedBrush,
+    ) -> Result<(), Self::Error> {
+        if let ComputedBrush::Solid(Color { a: 0, .. }) = brush {
+            return Ok(());
+        };
 
-            self.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &poly);
-        }
+        let poly = Polygon { vertices };
+        let (brush, brush_transform) = convert_brush(brush);
+
+        self.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &brush,
+            brush_transform,
+            &poly,
+        );
 
         Ok(())
     }

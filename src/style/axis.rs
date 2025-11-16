@@ -126,7 +126,7 @@ impl Style {
 
     #[must_use]
     #[inline]
-    pub fn min_size_along_axis(&self, axis: Axis) -> Property<Measurement, false> {
+    pub fn min_size_along_axis(&self, axis: Axis) -> Property<AbsoluteMeasurement, false> {
         match axis {
             Axis::X => self.min_width,
             Axis::Y => self.min_height,
@@ -135,7 +135,11 @@ impl Style {
 
     #[must_use]
     #[inline]
-    pub fn with_min_size_along_axis(self, axis: Axis, size: impl Into<Measurement>) -> Self {
+    pub fn with_min_size_along_axis(
+        self,
+        axis: Axis,
+        size: impl Into<AbsoluteMeasurement>,
+    ) -> Self {
         match axis {
             Axis::X => self.with_min_width(size),
             Axis::Y => self.with_min_height(size),
@@ -144,7 +148,7 @@ impl Style {
 
     #[must_use]
     #[inline]
-    pub fn max_size_along_axis(&self, axis: Axis) -> Property<Measurement, false> {
+    pub fn max_size_along_axis(&self, axis: Axis) -> Property<AbsoluteMeasurement, false> {
         match axis {
             Axis::X => self.max_width,
             Axis::Y => self.max_height,
@@ -153,7 +157,11 @@ impl Style {
 
     #[must_use]
     #[inline]
-    pub fn with_max_size_along_axis(self, axis: Axis, size: impl Into<Measurement>) -> Self {
+    pub fn with_max_size_along_axis(
+        self,
+        axis: Axis,
+        size: impl Into<AbsoluteMeasurement>,
+    ) -> Self {
         match axis {
             Axis::X => self.with_max_width(size),
             Axis::Y => self.with_max_height(size),
@@ -173,7 +181,7 @@ impl CascadedStyle {
 
     #[must_use]
     #[inline]
-    pub fn min_size_along_axis(&self, axis: Axis) -> Measurement {
+    pub fn min_size_along_axis(&self, axis: Axis) -> AbsoluteMeasurement {
         match axis {
             Axis::X => self.min_width,
             Axis::Y => self.min_height,
@@ -182,7 +190,7 @@ impl CascadedStyle {
 
     #[must_use]
     #[inline]
-    pub fn max_size_along_axis(&self, axis: Axis) -> Measurement {
+    pub fn max_size_along_axis(&self, axis: Axis) -> AbsoluteMeasurement {
         match axis {
             Axis::X => self.max_width,
             Axis::Y => self.max_height,

@@ -29,7 +29,7 @@ pub trait Renderer: 'static {
         position: Vec2<Pixel>,
         size: Vec2<Pixel>,
         corner_radius: Float<Pixel>,
-        color: Color,
+        brush: ComputedBrush,
     ) -> Result<(), Self::Error>;
 
     fn draw_poly(
@@ -39,7 +39,11 @@ pub trait Renderer: 'static {
         color: Color,
     ) -> Result<(), Self::Error>;
 
-    fn fill_poly(&mut self, vertices: &[Vec2<Pixel>], color: Color) -> Result<(), Self::Error>;
+    fn fill_poly(
+        &mut self,
+        vertices: &[Vec2<Pixel>],
+        brush: ComputedBrush,
+    ) -> Result<(), Self::Error>;
 
     fn draw_text(
         &mut self,
@@ -65,6 +69,190 @@ pub trait NodeRenderer: 'static {
     ) -> Result<(), <Self::Renderer as Renderer>::Error>;
 }
 
+fn draw_drop_shadow<R: Renderer>(node: &Node, renderer: &mut R) -> Result<(), R::Error> {
+    let edge_stops = [
+        GradientStop {
+            offset: 0.0,
+            color: node.style.drop_shadow_color(),
+        },
+        GradientStop {
+            offset: 1.0,
+            color: Color::TRANSPARENT,
+        },
+    ];
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x - node.style.drop_shadow_width(),
+            y: node.position.y + node.style.corner_radius(),
+        },
+        Vec2 {
+            x: node.style.drop_shadow_width(),
+            y: node.style.fixed_size.y - 2.0 * node.style.corner_radius(),
+        },
+        0.px(),
+        ComputedBrush::LinearGradient {
+            start: Vec2 {
+                x: node.position.x,
+                y: 0.px(),
+            },
+            end: Vec2 {
+                x: node.position.x - node.style.drop_shadow_width(),
+                y: 0.px(),
+            },
+            stops: &edge_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x + node.style.fixed_size.x,
+            y: node.position.y + node.style.corner_radius(),
+        },
+        Vec2 {
+            x: node.style.drop_shadow_width(),
+            y: node.style.fixed_size.y - 2.0 * node.style.corner_radius(),
+        },
+        0.px(),
+        ComputedBrush::LinearGradient {
+            start: Vec2 {
+                x: node.position.x + node.style.fixed_size.x,
+                y: 0.px(),
+            },
+            end: Vec2 {
+                x: node.position.x + node.style.fixed_size.x + node.style.drop_shadow_width(),
+                y: 0.px(),
+            },
+            stops: &edge_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x + node.style.corner_radius(),
+            y: node.position.y - node.style.drop_shadow_width(),
+        },
+        Vec2 {
+            x: node.style.fixed_size.x - 2.0 * node.style.corner_radius(),
+            y: node.style.drop_shadow_width(),
+        },
+        0.px(),
+        ComputedBrush::LinearGradient {
+            start: Vec2 {
+                x: 0.px(),
+                y: node.position.y,
+            },
+            end: Vec2 {
+                x: 0.px(),
+                y: node.position.y - node.style.drop_shadow_width(),
+            },
+            stops: &edge_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x + node.style.corner_radius(),
+            y: node.position.y + node.style.fixed_size.y,
+        },
+        Vec2 {
+            x: node.style.fixed_size.x - 2.0 * node.style.corner_radius(),
+            y: node.style.drop_shadow_width(),
+        },
+        0.px(),
+        ComputedBrush::LinearGradient {
+            start: Vec2 {
+                x: 0.px(),
+                y: node.position.y + node.style.fixed_size.y,
+            },
+            end: Vec2 {
+                x: 0.px(),
+                y: node.position.y + node.style.fixed_size.y + node.style.drop_shadow_width(),
+            },
+            stops: &edge_stops,
+        },
+    )?;
+
+    let corner_size = node.style.drop_shadow_width() + node.style.corner_radius();
+    let corner_offset = node.style.corner_radius() / corner_size;
+    let corner_stops = [
+        GradientStop {
+            offset: 0.0,
+            color: Color::TRANSPARENT,
+        },
+        GradientStop {
+            offset: corner_offset - 0.00001,
+            color: Color::TRANSPARENT,
+        },
+        GradientStop {
+            offset: corner_offset + 0.00001,
+            color: node.style.drop_shadow_color(),
+        },
+        GradientStop {
+            offset: 1.0,
+            color: Color::TRANSPARENT,
+        },
+    ];
+
+    renderer.fill_rect(
+        node.position - node.style.drop_shadow_width(),
+        corner_size.into(),
+        0.px(),
+        ComputedBrush::RadialGradient {
+            center: node.position + node.style.corner_radius(),
+            radius: corner_size.into(),
+            stops: &corner_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x + node.style.fixed_size.x - node.style.corner_radius(),
+            y: node.position.y - node.style.drop_shadow_width(),
+        },
+        corner_size.into(),
+        0.px(),
+        ComputedBrush::RadialGradient {
+            center: Vec2 {
+                x: node.position.x + node.style.fixed_size.x - node.style.corner_radius(),
+                y: node.position.y + node.style.corner_radius(),
+            },
+            radius: corner_size.into(),
+            stops: &corner_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        Vec2 {
+            x: node.position.x - node.style.drop_shadow_width(),
+            y: node.position.y + node.style.fixed_size.y - node.style.corner_radius(),
+        },
+        corner_size.into(),
+        0.px(),
+        ComputedBrush::RadialGradient {
+            center: Vec2 {
+                x: node.position.x + node.style.corner_radius(),
+                y: node.position.y + node.style.fixed_size.y - node.style.corner_radius(),
+            },
+            radius: corner_size.into(),
+            stops: &corner_stops,
+        },
+    )?;
+
+    renderer.fill_rect(
+        node.position + node.style.fixed_size - node.style.corner_radius(),
+        corner_size.into(),
+        0.px(),
+        ComputedBrush::RadialGradient {
+            center: node.position + node.style.fixed_size - node.style.corner_radius(),
+            radius: corner_size.into(),
+            stops: &corner_stops,
+        },
+    )?;
+
+    Ok(())
+}
+
 fn draw_tree<R: Renderer>(
     tree: TreeRef<'_, Node, Shared>,
     data: &ByorGuiData<R>,
@@ -76,20 +264,26 @@ fn draw_tree<R: Renderer>(
         ..
     } = tree;
 
+    if node.style.drop_shadow_width() > 0.px() {
+        draw_drop_shadow(node, renderer)?;
+    }
+
     renderer.fill_rect(
         node.position,
         node.style.fixed_size,
         node.style.corner_radius(),
-        node.style.background(),
+        node.style.background().offset(node.position),
     )?;
 
-    renderer.draw_rect(
-        node.position + node.style.border_width() * 0.5,
-        node.style.fixed_size - node.style.border_width(),
-        node.style.corner_radius(),
-        node.style.border_width(),
-        node.style.border_color(),
-    )?;
+    if node.style.border_width() > 0.px() {
+        renderer.draw_rect(
+            node.position + node.style.border_width() * 0.5,
+            node.style.fixed_size - node.style.border_width(),
+            node.style.corner_radius(),
+            node.style.border_width(),
+            node.style.border_color(),
+        )?;
+    }
 
     let (clip_position, clip_size) = node.clip_bounds();
     renderer.push_clip_rect(clip_position, clip_size)?;

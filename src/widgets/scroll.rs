@@ -262,7 +262,7 @@ impl<Renderer: rendering::Renderer> rendering::NodeRenderer for ScrollBarButtonR
 
         context
             .renderer
-            .fill_poly(&vertices, context.style.text_color())
+            .fill_poly(&vertices, context.style.text_color().into())
     }
 }
 

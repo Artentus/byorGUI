@@ -70,16 +70,16 @@ pub trait NodeRenderer: 'static {
 }
 
 fn draw_drop_shadow<R: Renderer>(node: &Node, renderer: &mut R) -> Result<(), R::Error> {
-    let edge_stops = [
-        GradientStop {
-            offset: 0.0,
-            color: node.style.drop_shadow_color(),
-        },
-        GradientStop {
-            offset: 1.0,
-            color: Color::TRANSPARENT,
-        },
-    ];
+    const STOP_COUNT: usize = 8;
+
+    let edge_stops = std::array::from_fn::<_, STOP_COUNT, _>(|i| {
+        let offset = (i as f32) / (STOP_COUNT as f32);
+        let mut color = node.style.drop_shadow_color();
+        let t = 1.0 - offset;
+        color.a = ((color.a as f32) * t * t * t).round() as u8;
+
+        GradientStop { offset, color }
+    });
 
     renderer.fill_rect(
         Vec2 {
@@ -175,24 +175,23 @@ fn draw_drop_shadow<R: Renderer>(node: &Node, renderer: &mut R) -> Result<(), R:
 
     let corner_size = node.style.drop_shadow_width() + node.style.corner_radius();
     let corner_offset = node.style.corner_radius() / corner_size;
-    let corner_stops = [
-        GradientStop {
+    let offset_range = 1.0 - corner_offset;
+
+    let corner_stops = std::array::from_fn::<_, { STOP_COUNT + 2 }, _>(|i| match i {
+        0 => GradientStop {
             offset: 0.0,
             color: Color::TRANSPARENT,
         },
-        GradientStop {
+        1 => GradientStop {
             offset: corner_offset - 0.00001,
             color: Color::TRANSPARENT,
         },
-        GradientStop {
-            offset: corner_offset + 0.00001,
-            color: node.style.drop_shadow_color(),
-        },
-        GradientStop {
-            offset: 1.0,
-            color: Color::TRANSPARENT,
-        },
-    ];
+        _ => {
+            let mut stop = edge_stops[i - 2];
+            stop.offset = stop.offset * offset_range + corner_offset;
+            stop
+        }
+    });
 
     renderer.fill_rect(
         node.position - node.style.drop_shadow_width(),

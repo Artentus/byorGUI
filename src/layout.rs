@@ -221,7 +221,7 @@ fn grow_or_shrink_children<Renderer: rendering::Renderer>(
                     } else {
                         0.0
                     };
-                    let target_size = total_target_size * flex_factor;
+                    let target_size = (total_target_size * flex_factor).round();
 
                     if (target_size <= min_size) || (target_size >= max_size) {
                         let new_size = target_size.clamp(min_size, max_size);
@@ -250,7 +250,7 @@ fn grow_or_shrink_children<Renderer: rendering::Renderer>(
                 } else {
                     0.0
                 };
-                let target_size = total_target_size * flex_factor;
+                let target_size = (total_target_size * flex_factor).round();
                 *node.style.fixed_size.along_axis_mut(axis) = target_size;
             }
         }
@@ -284,13 +284,12 @@ fn position_children<Renderer: rendering::Renderer>(
 
         parent.vertical_text_offset = match parent.style.vertical_text_alignment() {
             VerticalTextAlignment::Top => 0.px(),
-            VerticalTextAlignment::Center => {
-                (parent.style.fixed_size.y
-                    - text_layout.height().px().ceil()
-                    - parent.style.padding().top
-                    - parent.style.padding().bottom)
-                    / 2.0
-            }
+            VerticalTextAlignment::Center => ((parent.style.fixed_size.y
+                - text_layout.height().px().ceil()
+                - parent.style.padding().top
+                - parent.style.padding().bottom)
+                / 2.0)
+                .round(),
             VerticalTextAlignment::Bottom => {
                 parent.style.fixed_size.y
                     - text_layout.height().px().ceil()
@@ -325,7 +324,8 @@ fn position_children<Renderer: rendering::Renderer>(
     let mut primary_offset = match parent.style.child_alignment() {
         Alignment::Start => 0.px(),
         Alignment::Center => {
-            (parent_primary_size - total_primary_node_size) / 2.0 - parent_primary_padding[0]
+            ((parent_primary_size - total_primary_node_size) / 2.0).round()
+                - parent_primary_padding[0]
         }
         Alignment::End => {
             parent_primary_size
@@ -383,7 +383,7 @@ fn position_children<Renderer: rendering::Renderer>(
                 Alignment::Start => parent_cross_position + parent_cross_padding[0],
                 Alignment::Center => {
                     parent_cross_position
-                        + (parent_cross_size - node.style.fixed_size.along_axis(cross_axis)) / 2.0
+                        + ((parent_cross_size - node.style.fixed_size.along_axis(cross_axis)) / 2.0).round()
                 }
                 Alignment::End => {
                     parent_cross_position + parent_cross_size

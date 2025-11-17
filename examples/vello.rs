@@ -6,7 +6,6 @@ use byor_gui::widgets::*;
 use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
-use vello::wgpu;
 use vello::{Renderer, RendererOptions, Scene};
 use winit::event::{ElementState, Modifiers, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -427,7 +426,7 @@ fn create_theme(theme: &mut Theme) {
         Popup::TYPE_CLASS,
         &style! {
             background: Color { r: 40, g: 40, b: 40, a: 255 },
-            drop_shadow_width: 10.pt(),
+            drop_shadow_width: 15.pt(),
             drop_shadow_color: Color { r: 0, g: 0, b: 0, a: 128 },
         },
     );

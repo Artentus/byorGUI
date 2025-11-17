@@ -2,7 +2,7 @@ use crate::rendering::*;
 use crate::*;
 use vello::kurbo::{self, Affine, Line, PathEl, Rect, Shape, Stroke};
 use vello::peniko::color::{AlphaColor, DynamicColor, Srgb};
-use vello::peniko::{self, Fill, Gradient};
+use vello::peniko::{self, Fill};
 
 impl From<Vec2<Pixel>> for kurbo::Point {
     #[inline]
@@ -48,34 +48,58 @@ impl From<Color> for DynamicColor {
     }
 }
 
-impl From<GradientStop> for peniko::ColorStop {
-    #[inline]
-    fn from(stop: GradientStop) -> Self {
-        peniko::ColorStop {
-            offset: stop.offset,
-            color: stop.color.into(),
-        }
-    }
+#[must_use]
+fn convert_gradient_stops(stops: &[GradientStop]) -> impl Iterator<Item = peniko::ColorStop> {
+    use peniko::color::{ColorSpaceTag, HueDirection, gradient};
+
+    // This is necessary because Vello currently doesn't honor the selected color space for gradient interpolation.
+    let mut first = true;
+    stops.windows(2).flat_map(move |stops| {
+        let [a, b] = stops else { unreachable!() };
+        let offset_range = b.offset - a.offset;
+        let skip_n = if first { 0 } else { 1 };
+        first = false;
+
+        gradient::<Srgb>(
+            a.color.into(),
+            b.color.into(),
+            ColorSpaceTag::Oklab,
+            HueDirection::Shorter,
+            0.01,
+        )
+        .map(move |(offset, color)| peniko::ColorStop {
+            offset: offset * offset_range + a.offset,
+            color: color.un_premultiply().into(),
+        })
+        .skip(skip_n)
+    })
 }
 
+#[must_use]
 fn convert_brush(brush: ComputedBrush) -> (peniko::Brush, Option<Affine>) {
+    use peniko::{Brush, Gradient};
+
     match brush {
-        ComputedBrush::Solid(color) => (peniko::Brush::Solid(color.into()), None),
-        ComputedBrush::LinearGradient { start, end, stops } => (
-            peniko::Brush::Gradient(Gradient::new_linear(start, end).with_stops(stops)),
-            None,
-        ),
+        ComputedBrush::Solid(color) => (Brush::Solid(color.into()), None),
+        ComputedBrush::LinearGradient { start, end, stops } => {
+            let mut gradient = Gradient::new_linear(start, end);
+            gradient.stops.extend(convert_gradient_stops(stops));
+
+            (Brush::Gradient(gradient), None)
+        }
         ComputedBrush::RadialGradient {
             center,
             radius,
             stops,
         } => {
-            let gradient = Gradient::new_radial(kurbo::Point::ZERO, 1.0).with_stops(stops);
+            let mut gradient = Gradient::new_radial(kurbo::Point::ZERO, 1.0);
+            gradient.stops.extend(convert_gradient_stops(stops));
+
             let transform =
                 Affine::scale_non_uniform(radius.x.value() as f64, radius.y.value() as f64)
                     .then_translate((center).into());
 
-            (peniko::Brush::Gradient(gradient), Some(transform))
+            (Brush::Gradient(gradient), Some(transform))
         }
     }
 }

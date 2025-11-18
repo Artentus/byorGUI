@@ -16,6 +16,7 @@ vello = ["dep:vello"]
 unique_global_cache = []
 
 [dependencies]
+static_assertions = "1.1.0"
 byor_gui_procmacro = { path = "./byor_gui_procmacro" }
 cranelift-entity = "0.124.2"
 smallvec = { version = "1.15.1", features = ["union"] }

@@ -60,7 +60,7 @@ pub struct RenderContext<'a, R: Renderer> {
     pub renderer: &'a mut R,
 }
 
-pub trait NodeRenderer: 'static {
+pub trait NodeRenderer: Send + 'static {
     type Renderer: Renderer;
 
     fn render(

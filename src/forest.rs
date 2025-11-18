@@ -346,6 +346,9 @@ pub struct Forest<T> {
     root_indices: Vec<u32>,
 }
 
+unsafe impl<T> Send for Forest<T> {}
+unsafe impl<T> Sync for Forest<T> {}
+
 impl<T> Default for Forest<T> {
     #[inline]
     fn default() -> Self {

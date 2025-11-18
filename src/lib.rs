@@ -18,6 +18,7 @@ use intmap::{IntKey, IntMap};
 pub use math::*;
 use parley::layout::Layout as TextLayout;
 use smallbox::smallbox;
+use static_assertions::*;
 use std::any::Any;
 use std::fmt;
 use std::hash::Hasher;
@@ -265,7 +266,8 @@ pub enum PersistentStateKey {
     Custom(&'static str),
 }
 
-type PersistentStateStorage = rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any, 2>>;
+type PersistentStateStorage =
+    rapidhash::RapidHashMap<PersistentStateKey, SmallBox<dyn Any + Send, 2>>;
 
 #[derive(Default)]
 enum PersistentStateRepr {
@@ -321,7 +323,11 @@ impl PersistentState {
     }
 
     #[must_use]
-    pub fn get_or_insert<T: Any>(&mut self, key: PersistentStateKey, default: T) -> Option<&mut T> {
+    pub fn get_or_insert<T: Any + Send>(
+        &mut self,
+        key: PersistentStateKey,
+        default: T,
+    ) -> Option<&mut T> {
         let any = self
             .storage_mut()
             .entry(key)
@@ -330,7 +336,7 @@ impl PersistentState {
     }
 
     #[must_use]
-    pub fn get_or_insert_with<T: Any>(
+    pub fn get_or_insert_with<T: Any + Send>(
         &mut self,
         key: PersistentStateKey,
         default: impl FnOnce() -> T,
@@ -342,10 +348,13 @@ impl PersistentState {
         any.downcast_mut()
     }
 
-    pub fn insert<T: Any>(&mut self, key: PersistentStateKey, value: T) {
+    pub fn insert<T: Any + Send>(&mut self, key: PersistentStateKey, value: T) {
         self.storage_mut().insert(key, smallbox!(value));
     }
 }
+
+assert_impl_all!(PersistentState: Send);
+assert_not_impl_all!(PersistentState: Sync);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HoverState {
@@ -368,6 +377,8 @@ pub struct PreviousState {
     pub content_size: Vec2<Pixel>,
     pub position: Vec2<Pixel>,
 }
+
+assert_impl_all!(PreviousState: Send);
 
 type NodeRendererStorage<Renderer> = SmallBox<dyn rendering::NodeRenderer<Renderer = Renderer>, 8>;
 
@@ -392,6 +403,11 @@ pub struct ByorGui<Renderer: rendering::Renderer> {
     forest: Forest<Node>,
     data: ByorGuiData<Renderer>,
 }
+
+#[cfg(feature = "vello")]
+assert_impl_all!(ByorGui<vello::Scene>: Send);
+#[cfg(feature = "vello")]
+assert_not_impl_all!(ByorGui<vello::Scene>: Sync);
 
 #[must_use]
 fn compute_previous_state<Renderer: rendering::Renderer>(

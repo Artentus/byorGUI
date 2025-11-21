@@ -789,6 +789,18 @@ impl PartialEq for Key {
     }
 }
 
+impl Key {
+    pub fn eq_ignore_ascii_case(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&Self::Named(l), &Self::Named(r)) => l == r,
+            (Self::Character(l), Self::Character(r)) => l.eq_ignore_ascii_case(r),
+            (&Self::Dead(Some(l)), &Self::Dead(Some(r))) => l.eq_ignore_ascii_case(&r),
+            (&Self::Unknown(Some(l)), &Self::Unknown(Some(r))) => l == r,
+            _ => false,
+        }
+    }
+}
+
 impl From<NamedKey> for Key {
     #[inline]
     fn from(key: NamedKey) -> Self {
@@ -846,6 +858,71 @@ pub struct Shortcut {
     pub modifiers: Modifiers,
     pub key: Key,
     pub location: Option<KeyLocation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyEventMatch {
+    True,
+    ConsumeOnly,
+    False,
+}
+
+impl KeyEvent {
+    pub fn matches(&self, shortcut: &Shortcut) -> KeyEventMatch {
+        if let KeyEvent::Pressed {
+            key,
+            location,
+            modifiers,
+            repeat: false,
+            ..
+        } = self
+        {
+            let matches = match shortcut.location {
+                Some(shortcut_location) => {
+                    key.eq_ignore_ascii_case(&shortcut.key)
+                        && (*location == shortcut_location)
+                        && modifiers.matches(shortcut.modifiers)
+                }
+                None => {
+                    key.eq_ignore_ascii_case(&shortcut.key) && modifiers.matches(shortcut.modifiers)
+                }
+            };
+
+            if matches {
+                return KeyEventMatch::True;
+            }
+        } else if let KeyEvent::Pressed {
+            key,
+            location,
+            modifiers,
+            repeat: true,
+            ..
+        }
+        | KeyEvent::Released {
+            key,
+            location,
+            modifiers,
+            ..
+        } = self
+        {
+            let matches = match shortcut.location {
+                Some(shortcut_location) => {
+                    key.eq_ignore_ascii_case(&shortcut.key)
+                        && (*location == shortcut_location)
+                        && modifiers.matches(shortcut.modifiers)
+                }
+                None => {
+                    key.eq_ignore_ascii_case(&shortcut.key) && modifiers.matches(shortcut.modifiers)
+                }
+            };
+
+            if matches {
+                return KeyEventMatch::ConsumeOnly;
+            }
+        }
+
+        KeyEventMatch::False
+    }
 }
 
 bitflags! {
@@ -920,12 +997,14 @@ pub enum KeyEvent {
         key: Key,
         location: KeyLocation,
         text: Option<SmolStr>,
+        modifiers: Modifiers,
         repeat: bool,
     },
     Released {
         key: Key,
         location: KeyLocation,
         text: Option<SmolStr>,
+        modifiers: Modifiers,
     },
 }
 
@@ -972,6 +1051,7 @@ impl InputState {
                     key,
                     location,
                     text,
+                    modifiers: self.modifiers(),
                     repeat,
                 });
             }
@@ -996,6 +1076,7 @@ impl InputState {
                     key,
                     location,
                     text,
+                    modifiers: self.modifiers(),
                 });
             }
             InputEvent::CursorMoved { position } => self.position = position,
@@ -1047,36 +1128,16 @@ impl InputState {
     }
 
     pub fn consume_shortcut(&mut self, shortcut: &Shortcut) -> bool {
-        if !self.modifiers().matches(shortcut.modifiers) {
-            return false;
-        }
-
-        let mut contains_key = false;
-        self.retain_key_events(|event| {
-            if let KeyEvent::Pressed {
-                key,
-                location,
-                repeat: false,
-                ..
-            } = event
-            {
-                let matches = match shortcut.location {
-                    Some(shortcut_location) => {
-                        (key == &shortcut.key) && (*location == shortcut_location)
-                    }
-                    None => key == &shortcut.key,
-                };
-
-                if matches {
-                    contains_key = true;
-                    return false;
-                }
+        let mut shortcut_pressed = false;
+        self.retain_key_events(|event| match event.matches(shortcut) {
+            KeyEventMatch::True => {
+                shortcut_pressed = true;
+                false
             }
-
-            true
+            KeyEventMatch::ConsumeOnly => false,
+            KeyEventMatch::False => true,
         });
-
-        contains_key
+        shortcut_pressed
     }
 
     #[must_use]

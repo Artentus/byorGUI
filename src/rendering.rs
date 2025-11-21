@@ -1,8 +1,43 @@
 use super::*;
+use std::marker::PhantomData;
 
-pub use parley::Style as TextStyle;
-pub use parley::fontique::Synthesis;
-pub use parley::{Cluster, Decoration, FontData, Glyph, GlyphRun, Run, RunMetrics};
+pub trait InlineBoxRenderer {
+    type Renderer: Renderer + ?Sized;
+
+    fn render_box(
+        &mut self,
+        renderer: &mut Self::Renderer,
+        position: Vec2<Pixel>,
+        size: Vec2<Pixel>,
+        id: u64,
+    ) -> Result<(), <Self::Renderer as Renderer>::Error>;
+}
+
+pub struct UnimplementedBoxRenderer<R: Renderer> {
+    _r: PhantomData<fn(R)>,
+}
+
+impl<R: Renderer> Default for UnimplementedBoxRenderer<R> {
+    #[inline]
+    fn default() -> Self {
+        Self { _r: PhantomData }
+    }
+}
+
+impl<R: Renderer> InlineBoxRenderer for UnimplementedBoxRenderer<R> {
+    type Renderer = R;
+
+    #[inline]
+    fn render_box(
+        &mut self,
+        _renderer: &mut Self::Renderer,
+        _position: Vec2<Pixel>,
+        _size: Vec2<Pixel>,
+        _id: u64,
+    ) -> Result<(), <Self::Renderer as Renderer>::Error> {
+        unimplemented!()
+    }
+}
 
 pub trait Renderer: 'static {
     type Error;
@@ -47,16 +82,51 @@ pub trait Renderer: 'static {
 
     fn draw_text(
         &mut self,
-        text: GlyphRun<'_, Color>,
+        text: parley::GlyphRun<'_, Color>,
         position: Vec2<Pixel>,
     ) -> Result<(), Self::Error>;
+
+    fn draw_text_layout<B>(
+        &mut self,
+        layout: &parley::Layout<Color>,
+        position: Vec2<Pixel>,
+        box_renderer: &mut B,
+    ) -> Result<(), Self::Error>
+    where
+        B: InlineBoxRenderer<Renderer = Self>,
+    {
+        for line in layout.lines() {
+            for item in line.items() {
+                match item {
+                    parley::PositionedLayoutItem::GlyphRun(text) => {
+                        self.draw_text(text, position)?;
+                    }
+                    parley::PositionedLayoutItem::InlineBox(b) => {
+                        let box_position = Vec2 {
+                            x: position.x + b.x.px(),
+                            y: position.y + b.y.px(),
+                        };
+                        let box_size = Vec2 {
+                            x: b.width.px(),
+                            y: b.height.px(),
+                        };
+                        box_renderer.render_box(self, box_position, box_size, b.id)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct RenderContext<'a, R: Renderer> {
     pub position: Vec2<Pixel>,
     pub size: Vec2<Pixel>,
     pub style: &'a ComputedStyle,
-    pub persistent_state: Option<&'a PersistentState>,
+    pub scale_factor: f32,
+    pub input_state: NodeInputState,
+    pub persistent_state: &'a PersistentState,
     pub renderer: &'a mut R,
 }
 
@@ -255,6 +325,7 @@ fn draw_drop_shadow<R: Renderer>(node: &Node, renderer: &mut R) -> Result<(), R:
 fn draw_tree<R: Renderer>(
     tree: TreeRef<'_, Node, Shared>,
     data: &ByorGuiData<R>,
+    scale_factor: f32,
     renderer: &mut R,
 ) -> Result<(), R::Error> {
     let TreeRef {
@@ -288,11 +359,18 @@ fn draw_tree<R: Renderer>(
     renderer.push_clip_rect(clip_position, clip_size)?;
 
     if let Some(node_renderer_id) = node.renderer.expand() {
+        let persistent_state = node
+            .uid
+            .and_then(|uid| data.persistent_state.get(uid))
+            .unwrap_or(&PersistentState::EMPTY);
+
         let context = RenderContext {
             position: node.position,
             size: node.style.fixed_size,
             style: &node.style,
-            persistent_state: node.uid.and_then(|uid| data.persistent_state.get(uid)),
+            scale_factor,
+            input_state: data.compute_node_input_state(node.uid),
+            persistent_state,
             renderer,
         };
 
@@ -301,25 +379,16 @@ fn draw_tree<R: Renderer>(
 
     if let Some(text_layout_id) = node.text_layout.expand() {
         let text_layout = &data.text_layouts[text_layout_id];
+        let text_position = Vec2 {
+            x: node.position.x + node.style.padding().left,
+            y: node.position.y + node.style.padding().top + node.vertical_text_offset,
+        };
 
-        for line in text_layout.lines() {
-            for item in line.items() {
-                match item {
-                    parley::PositionedLayoutItem::GlyphRun(text) => {
-                        let text_position = Vec2 {
-                            x: node.position.x + node.style.padding().left,
-                            y: node.position.y
-                                + node.style.padding().top
-                                + node.vertical_text_offset,
-                        };
-                        renderer.draw_text(text, text_position)?
-                    }
-                    parley::PositionedLayoutItem::InlineBox(_) => {
-                        unreachable!("inline boxes are not generated")
-                    }
-                }
-            }
-        }
+        renderer.draw_text_layout(
+            text_layout,
+            text_position,
+            &mut UnimplementedBoxRenderer::default(),
+        )?;
     }
 
     iter_subtrees!(descendants => |subtree| {
@@ -327,7 +396,7 @@ fn draw_tree<R: Renderer>(
             continue;
         }
 
-        draw_tree(subtree, data, renderer)?;
+        draw_tree(subtree, data, scale_factor, renderer)?;
     });
 
     renderer.pop_clip_rect()?;
@@ -338,7 +407,7 @@ impl<R: Renderer> ByorGui<R> {
     pub fn render(&mut self, renderer: &mut R) -> Result<(), R::Error> {
         let mut trees = self.forest.trees();
         while let Some(tree) = trees.next() {
-            draw_tree(tree, &self.data, renderer)?;
+            draw_tree(tree, &self.data, self.scale_factor(), renderer)?;
         }
 
         Ok(())

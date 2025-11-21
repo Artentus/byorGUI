@@ -74,6 +74,18 @@ mod global_cache {
     }
 }
 
+#[inline]
+pub fn with_global_font_cache<R>(
+    f: impl FnOnce(&mut parley::LayoutContext<Color>, &mut parley::FontContext) -> R,
+) -> R {
+    global_cache::with_parley_global_data(|parley_global_data| {
+        f(
+            &mut parley_global_data.layout_context,
+            &mut parley_global_data.font_context,
+        )
+    })
+}
+
 fn point_in_rect<U: Unit>(point: Vec2<U>, position: Vec2<U>, size: Vec2<U>) -> bool {
     (point.x >= position.x)
         && (point.x <= position.x + size.x)
@@ -263,6 +275,7 @@ pub enum PersistentStateKey {
     VerticalScroll,
     ScrollBarThumbMouseOffset,
     PreviousPopupState,
+    TextBoxEditor,
 
     Custom(&'static str),
 }
@@ -413,6 +426,39 @@ impl<Renderer: rendering::Renderer> Default for ByorGuiData<Renderer> {
             input_state: InputState::default(),
             hovered_node_override: None,
             focused_node: None,
+        }
+    }
+}
+
+impl<Renderer: rendering::Renderer> ByorGuiData<Renderer> {
+    #[must_use]
+    fn compute_node_input_state(&self, uid: Option<Uid>) -> NodeInputState {
+        let hover_state = uid
+            .and_then(|uid| self.previous_state.get(uid))
+            .map(|previous_state| previous_state.hover_state)
+            .unwrap_or_default();
+
+        let (pressed_buttons, clicked_buttons, released_buttons) =
+            if hover_state == HoverState::DirectlyHovered {
+                (
+                    self.input_state.pressed_buttons(),
+                    self.input_state.clicked_buttons(),
+                    self.input_state.released_buttons(),
+                )
+            } else {
+                (
+                    MouseButtons::empty(),
+                    MouseButtons::empty(),
+                    MouseButtons::empty(),
+                )
+            };
+
+        NodeInputState {
+            hover_state,
+            pressed_buttons,
+            clicked_buttons,
+            released_buttons,
+            focused: uid.is_some() && (uid == self.focused_node),
         }
     }
 }
@@ -715,6 +761,12 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
 
     #[must_use]
     #[inline]
+    pub fn global_input_state_mut(&mut self) -> &mut InputState {
+        &mut self.data.input_state
+    }
+
+    #[must_use]
+    #[inline]
     pub fn parent_input_state(&self) -> NodeInputState {
         self.parent_input_state
     }
@@ -946,38 +998,6 @@ where
 impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     #[must_use]
     #[inline]
-    fn compute_node_input_state(&self, uid: Option<Uid>) -> NodeInputState {
-        let hover_state = uid
-            .and_then(|uid| self.data.previous_state.get(uid))
-            .map(|previous_state| previous_state.hover_state)
-            .unwrap_or_default();
-
-        let (pressed_buttons, clicked_buttons, released_buttons) =
-            if hover_state == HoverState::DirectlyHovered {
-                (
-                    self.data.input_state.pressed_buttons(),
-                    self.data.input_state.clicked_buttons(),
-                    self.data.input_state.released_buttons(),
-                )
-            } else {
-                (
-                    MouseButtons::empty(),
-                    MouseButtons::empty(),
-                    MouseButtons::empty(),
-                )
-            };
-
-        NodeInputState {
-            hover_state,
-            pressed_buttons,
-            clicked_buttons,
-            released_buttons,
-            focused: uid.is_some() && (uid == self.data.focused_node),
-        }
-    }
-
-    #[must_use]
-    #[inline]
     fn layout_text(&mut self, text: &str) -> TextLayoutId {
         use parley::style::{LineHeight, OverflowWrap, StyleProperty};
 
@@ -1011,7 +1031,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         text: Option<&str>,
         renderer: Option<NodeRendererStorage<Renderer>>,
     ) -> widgets::WidgetResult<ByorGuiContext<'gui, Renderer>> {
-        let input_state = self.compute_node_input_state(uid);
+        let input_state = self.data.compute_node_input_state(uid);
         let cascaded_style = style.cascade(&self.parent_style, input_state);
         let computed_style = compute_style(
             style,

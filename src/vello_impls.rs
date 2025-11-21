@@ -312,7 +312,7 @@ impl Renderer for Scene {
 
     fn draw_text(
         &mut self,
-        text: GlyphRun<'_, Color>,
+        text: parley::GlyphRun<'_, Color>,
         position: Vec2<Pixel>,
     ) -> Result<(), Self::Error> {
         let style = text.style();

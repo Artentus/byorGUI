@@ -3,6 +3,7 @@ pub mod label;
 pub mod panel;
 pub mod popup;
 pub mod scroll;
+pub mod text_box;
 
 use crate::theme::StyleClass;
 use crate::*;
@@ -12,6 +13,7 @@ pub use label::Label;
 pub use panel::FlexPanel;
 pub use popup::Popup;
 pub use scroll::{ScrollBar, ScrollView};
+pub use text_box::TextBox;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MaybeUid {
@@ -224,15 +226,13 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     #[track_caller]
     #[inline]
     pub fn label(&mut self, text: &str) -> WidgetResult<()> {
-        let label = Label::default().with_text(text);
-        self.show(label)
+        self.show(Label::default().with_text(text))
     }
 
     #[track_caller]
     #[inline]
     pub fn button(&mut self, text: &str) -> WidgetResult<NodeInputState> {
-        let button = Button::default().with_text(text).with_uid_from_text();
-        self.show(button)
+        self.show(Button::default().with_text(text).with_uid_from_text())
     }
 
     #[track_caller]
@@ -241,8 +241,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         &mut self,
         contents: impl FnOnce(ByorGuiContext<'_, Renderer>),
     ) -> WidgetResult<NodeInputState> {
-        let button = ContentButton::default();
-        self.show_container(button, contents)
+        self.show_container(ContentButton::default(), contents)
             .map(|response| response.input_state)
     }
 
@@ -252,8 +251,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         &mut self,
         renderer: impl rendering::NodeRenderer<Renderer = Renderer>,
     ) -> WidgetResult<NodeInputState> {
-        let button = CanvasButton::new(renderer);
-        self.show(button)
+        self.show(CanvasButton::new(renderer))
     }
 
     #[track_caller]
@@ -262,8 +260,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         &mut self,
         contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<R> {
-        let panel = FlexPanel::default();
-        self.show_container(panel, contents)
+        self.show_container(FlexPanel::default(), contents)
     }
 
     #[track_caller]
@@ -312,7 +309,12 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         position: FloatPosition,
         contents: impl FnOnce(ByorGuiContext<'_, Renderer>) -> R,
     ) -> WidgetResult<Option<R>> {
-        let popup = Popup::new(open).with_position(position);
-        self.show_container(popup, contents)
+        self.show_container(Popup::new(open).with_position(position), contents)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub fn text_box(&mut self, text: &mut String) -> WidgetResult<()> {
+        self.show(TextBox::new(text))
     }
 }

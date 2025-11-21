@@ -27,9 +27,18 @@ struct RenderState {
     surface_valid: bool,
 }
 
-#[derive(Default)]
 struct ExampleAppState {
     show_popup: bool,
+    edit_text: String,
+}
+
+impl Default for ExampleAppState {
+    fn default() -> Self {
+        Self {
+            show_popup: false,
+            edit_text: include_str!("lorem_ipsum.txt").to_string(),
+        }
+    }
 }
 
 struct ExampleApp {
@@ -288,7 +297,7 @@ fn create_theme(theme: &mut Theme) {
         &style! {
             padding: 5.pt(),
             child_spacing: 5.pt(),
-            border_color: Color { r: 192, g: 192, b: 192, a: 255 },
+            border_color: Color::greyscale(192),
             border_width: 1.0.pt(),
             corner_radius: 5.0.pt(),
         },
@@ -298,10 +307,10 @@ fn create_theme(theme: &mut Theme) {
         Theme::ROOT_TYPE_CLASS,
         &style! {
             font_size: 16.pt(),
-            background: Color { r: 48, g: 48, b: 48, a: 255 },
+            background: Color::greyscale(48),
             border_width: 0.0.pt(),
             corner_radius: 0.0.pt(),
-            text_color: Color { r: 224, g: 224, b: 224, a: 255 },
+            text_color: Color::greyscale(224),
         },
     );
 
@@ -346,7 +355,7 @@ fn create_theme(theme: &mut Theme) {
             padding: 0.px(),
             child_spacing: 1.pt(),
             border_width: 0.0.px(),
-            background: Color { r: 32, g: 32, b: 32, a: 255 },
+            background: Color::greyscale(32),
         },
     );
 
@@ -358,7 +367,7 @@ fn create_theme(theme: &mut Theme) {
             padding: 0.px(),
             child_spacing: 1.pt(),
             border_width: 0.0.px(),
-            background: Color { r: 32, g: 32, b: 32, a: 255 },
+            background: Color::greyscale(32),
         },
     );
 
@@ -420,9 +429,29 @@ fn create_theme(theme: &mut Theme) {
     theme.insert_style(
         Popup::TYPE_CLASS,
         &style! {
-            background: Color { r: 40, g: 40, b: 40, a: 255 },
+            background: Color::greyscale(40),
             drop_shadow_width: 20.pt(),
             drop_shadow_color: Color { r: 0, g: 0, b: 0, a: 196 },
+        },
+    );
+
+    let text_box_border: PropertyFn<Color> = |_, input_state| {
+        if input_state.focused {
+            Color::greyscale(224)
+        } else if input_state.is_hovered() {
+            Color::greyscale(192)
+        } else {
+            Color::greyscale(128)
+        }
+    };
+
+    theme.insert_style(
+        TextBox::TYPE_CLASS,
+        &style! {
+            width: Sizing::Grow,
+            height: Sizing::Grow,
+            border_color: text_box_border,
+            background: Color::greyscale(32),
         },
     );
 }
@@ -491,18 +520,6 @@ fn build_gui(
         };
         let panel = FlexPanel::default().with_style(&style);
         gui.show_container(panel, |mut gui| {
-            let style = style! {
-                width: Sizing::Grow,
-                height: 100.pt(),
-                cross_axis_alignment: Alignment::Center,
-                horizontal_text_alignment: HorizontalTextAlignment::Center,
-                vertical_text_alignment: VerticalTextAlignment::Center,
-            };
-            let label = Label::default()
-                .with_text("Lorem ipsum dolor sit amet")
-                .with_style(&style);
-            gui.show(label)?;
-
             gui.insert_node(
                 const { Some(Uid::from_slice(b"popup_parent")) },
                 &style! {
@@ -541,6 +558,8 @@ fn build_gui(
                 }),
             )?
             .result?;
+
+            gui.text_box(&mut app_state.edit_text)?;
 
             Ok(())
         })??;

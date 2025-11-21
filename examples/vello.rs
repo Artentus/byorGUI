@@ -7,9 +7,8 @@ use byor_gui::*;
 use std::sync::Arc;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{Renderer, RendererOptions, Scene};
-use winit::event::{ElementState, Modifiers, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
 fn main() -> Result<()> {
@@ -39,8 +38,6 @@ struct ExampleApp {
     state: Option<RenderState>,
     required_redraws: u8,
     gui: ByorGui<Scene>,
-    mouse_state: MouseState,
-    modifiers: Modifiers,
     app_state: ExampleAppState,
 }
 
@@ -55,8 +52,6 @@ impl ExampleApp {
             state: None,
             required_redraws: 2,
             gui,
-            mouse_state: MouseState::default(),
-            modifiers: Modifiers::default(),
             app_state: ExampleAppState::default(),
         }
     }
@@ -128,57 +123,61 @@ impl winit::application::ApplicationHandler for ExampleApp {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::ScaleFactorChanged { .. } => {
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.gui.set_scale_factor(scale_factor as f32);
+
                 self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                self.modifiers = modifiers;
+            WindowEvent::KeyboardInput { event, .. } => {
+                self.gui.on_input_event(event.into());
+
+                self.required_redraws = self.required_redraws.max(2);
+                window.request_redraw();
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                use winit::event::MouseButton;
-
-                let buttons = match button {
-                    MouseButton::Left => MouseButtons::PRIMARY,
-                    MouseButton::Right => MouseButtons::SECONDARY,
-                    MouseButton::Middle => MouseButtons::MIDDLE,
-                    MouseButton::Back => MouseButtons::BACK,
-                    MouseButton::Forward => MouseButtons::FORWARD,
-                    MouseButton::Other(_) => MouseButtons::empty(),
-                };
-
-                match state {
-                    ElementState::Pressed => self.mouse_state.pressed_buttons |= buttons,
-                    ElementState::Released => self.mouse_state.pressed_buttons &= !buttons,
+                if let Ok(button) = button.try_into() {
+                    match state {
+                        ElementState::Pressed => self
+                            .gui
+                            .on_input_event(InputEvent::ButtonPressed { button }),
+                        ElementState::Released => self
+                            .gui
+                            .on_input_event(InputEvent::ButtonReleased { button }),
+                    }
                 }
 
                 self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let delta = match delta {
+                match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
-                        let pixels_per_scroll_line =
-                            POINTS_PER_SCROLL_LINE.to_pixel(window.scale_factor() as f32);
-
-                        if self.modifiers.state().contains(ModifiersState::CONTROL) {
-                            Vec2 {
-                                x: y * pixels_per_scroll_line,
-                                y: x * pixels_per_scroll_line,
-                            }
+                        let delta = if self
+                            .gui
+                            .input_state()
+                            .modifiers()
+                            .contains(Modifiers::CONTROL)
+                        {
+                            ScrollDelta::Point(Vec2 {
+                                x: y * POINTS_PER_SCROLL_LINE,
+                                y: x * POINTS_PER_SCROLL_LINE,
+                            })
                         } else {
-                            Vec2 {
-                                x: x * pixels_per_scroll_line,
-                                y: y * pixels_per_scroll_line,
-                            }
-                        }
+                            ScrollDelta::Point(Vec2 {
+                                x: x * POINTS_PER_SCROLL_LINE,
+                                y: y * POINTS_PER_SCROLL_LINE,
+                            })
+                        };
+
+                        self.gui.on_input_event(InputEvent::Scrolled { delta });
                     }
-                    MouseScrollDelta::PixelDelta(physical_position) => Vec2 {
-                        x: physical_position.x.px(),
-                        y: physical_position.y.px(),
-                    },
-                };
-                self.mouse_state.scroll_delta += delta;
+                    MouseScrollDelta::PixelDelta(delta) => {
+                        self.gui.on_input_event(InputEvent::Scrolled {
+                            delta: ScrollDelta::Pixel(delta.into()),
+                        });
+                    }
+                }
 
                 self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
@@ -188,10 +187,9 @@ impl winit::application::ApplicationHandler for ExampleApp {
                 window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.mouse_state.position = Vec2 {
-                    x: position.x.px(),
-                    y: position.y.px(),
-                };
+                self.gui.on_input_event(InputEvent::CursorMoved {
+                    position: position.into(),
+                });
 
                 self.required_redraws = self.required_redraws.max(2);
                 window.request_redraw();
@@ -227,13 +225,10 @@ impl winit::application::ApplicationHandler for ExampleApp {
                                 x: surface.config.width.px(),
                                 y: surface.config.height.px(),
                             },
-                            window.scale_factor() as f32,
-                            self.mouse_state,
                             |gui| build_gui(&mut self.app_state, gui),
                         )
                         .map_err(|e| format_err!("{e}"))
                         .expect("error building GUI");
-                    self.mouse_state.scroll_delta = Vec2::ZERO;
 
                     let mut scene = Scene::new();
                     self.gui.render(&mut scene).unwrap();

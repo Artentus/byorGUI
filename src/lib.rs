@@ -15,7 +15,6 @@ use cranelift_entity::packed_option::PackedOption;
 use forest::*;
 use input::*;
 use intmap::{IntKey, IntMap};
-pub use math::*;
 use parley::layout::Layout as TextLayout;
 use smallbox::smallbox;
 use static_assertions::*;
@@ -27,7 +26,9 @@ use style::computed::*;
 use style::*;
 use theme::Theme;
 
-use crate::rendering::NodeRenderer;
+pub use math::*;
+pub use parley;
+pub use smol_str;
 
 type SmallBox<T, const INLINE_SIZE: usize> = smallbox::SmallBox<T, [usize; INLINE_SIZE]>;
 
@@ -382,26 +383,52 @@ assert_impl_all!(PreviousState: Send);
 
 type NodeRendererStorage<Renderer> = SmallBox<dyn rendering::NodeRenderer<Renderer = Renderer>, 8>;
 
-#[derive(Default)]
 struct ByorGuiData<Renderer: rendering::Renderer> {
     text_layouts: PrimaryMap<TextLayoutId, TextLayout<Color>>,
     renderers: PrimaryMap<NodeRendererId, NodeRendererStorage<Renderer>>,
     persistent_state: IntMap<Uid, PersistentState>,
     previous_state: IntMap<Uid, PreviousState>,
     float_positions: IntMap<Uid, PersistentFloatPosition>,
+    uid_stack: Vec<Uid>,
 
     theme: Theme,
     scale_factor: f32,
     input_state: InputState,
     hovered_node_override: Option<Uid>,
-
-    uid_stack: Vec<Uid>,
+    focused_node: Option<Uid>,
 }
 
-#[derive(Default)]
+impl<Renderer: rendering::Renderer> Default for ByorGuiData<Renderer> {
+    fn default() -> Self {
+        Self {
+            text_layouts: PrimaryMap::new(),
+            renderers: PrimaryMap::new(),
+            persistent_state: IntMap::new(),
+            previous_state: IntMap::new(),
+            float_positions: IntMap::new(),
+            uid_stack: Vec::new(),
+
+            theme: Theme::default(),
+            scale_factor: 1.0,
+            input_state: InputState::default(),
+            hovered_node_override: None,
+            focused_node: None,
+        }
+    }
+}
+
 pub struct ByorGui<Renderer: rendering::Renderer> {
     forest: Forest<Node>,
     data: ByorGuiData<Renderer>,
+}
+
+impl<Renderer: rendering::Renderer> Default for ByorGui<Renderer> {
+    fn default() -> Self {
+        Self {
+            forest: Forest::default(),
+            data: ByorGuiData::default(),
+        }
+    }
 }
 
 #[cfg(feature = "vello")]
@@ -423,7 +450,7 @@ fn compute_previous_state<Renderer: rendering::Renderer>(
         ..
     } = tree;
 
-    let mouse_position = data.input_state.mouse_position();
+    let mouse_position = data.input_state.cursor_position();
     let mouse_in_bounds = mouse_in_parent_clip_bounds
         && point_in_rect(mouse_position, node.position, node.style.fixed_size);
 
@@ -523,7 +550,33 @@ impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
 
         if !self.data.input_state.pressed_buttons().is_empty() {
             self.data.hovered_node_override = hovered_node;
+            if hovered_node.is_some() {
+                self.data.focused_node = hovered_node;
+            }
         }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn scale_factor(&self) -> f32 {
+        self.data.scale_factor
+    }
+
+    #[inline]
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.data.scale_factor = scale_factor;
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn input_state(&self) -> &InputState {
+        &self.data.input_state
+    }
+
+    pub fn on_input_event(&mut self, event: InputEvent) {
+        self.data
+            .input_state
+            .on_event(event, self.data.scale_factor);
     }
 
     #[must_use]
@@ -531,8 +584,6 @@ impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
     fn begin_frame<'gui>(
         &'gui mut self,
         screen_size: Vec2<Pixel>,
-        scale_factor: f32,
-        mouse_state: MouseState,
     ) -> ByorGuiContext<'gui, Renderer> {
         self.data.text_layouts.clear();
         self.data.renderers.clear();
@@ -545,16 +596,14 @@ impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
             .values_mut()
             .for_each(PersistentFloatPosition::reset_referenced);
 
-        self.data.scale_factor = scale_factor;
-        self.data.input_state.update(mouse_state);
-
         let input_state = NodeInputState::default();
         let root_style = self
             .data
             .theme
             .build_style(None, &[], Theme::ROOT_TYPE_CLASS);
         let cascaded_style = root_style.cascade_root(screen_size, input_state);
-        let computed_style = compute_style(&root_style, &cascaded_style, None, scale_factor);
+        let computed_style =
+            compute_style(&root_style, &cascaded_style, None, self.data.scale_factor);
         let primary_builder = self.forest.insert_primary(Node::new_root(computed_style));
 
         ByorGuiContext {
@@ -570,17 +619,16 @@ impl<Renderer: rendering::Renderer> ByorGui<Renderer> {
         self.data.float_positions.retain(|_, pos| pos.referenced());
         self.layout();
         self.update_previous_states();
+        self.data.input_state.end_frame();
     }
 
     #[inline]
     pub fn frame<T>(
         &mut self,
         screen_size: Vec2<Pixel>,
-        scale_factor: f32,
-        mouse_state: MouseState,
         builder: impl FnOnce(ByorGuiContext<'_, Renderer>) -> T,
     ) -> T {
-        let context = self.begin_frame(screen_size, scale_factor, mouse_state);
+        let context = self.begin_frame(screen_size);
         let result = builder(context);
         self.end_frame();
 
@@ -594,6 +642,7 @@ pub struct NodeInputState {
     pub pressed_buttons: MouseButtons,
     pub clicked_buttons: MouseButtons,
     pub released_buttons: MouseButtons,
+    pub focused: bool,
 }
 
 impl NodeInputState {
@@ -795,9 +844,16 @@ where
     Renderer: rendering::Renderer,
     Builder: GuiBuilder<Renderer>,
 {
-    pub text: Option<&'text str>,
-    pub renderer: Option<NodeRendererStorage<Renderer>>,
-    pub builder: Builder,
+    text: Option<&'text str>,
+    renderer: Option<NodeRendererStorage<Renderer>>,
+    builder: Builder,
+}
+
+impl<Renderer: rendering::Renderer> Default for NodeContents<'_, Renderer> {
+    #[inline]
+    fn default() -> Self {
+        Self::EMPTY
+    }
 }
 
 impl<'text, Renderer: rendering::Renderer> NodeContents<'text, Renderer> {
@@ -818,7 +874,7 @@ impl<'text, Renderer: rendering::Renderer> NodeContents<'text, Renderer> {
 
     #[must_use]
     #[inline]
-    pub fn renderer(renderer: impl NodeRenderer<Renderer = Renderer>) -> Self {
+    pub fn renderer(renderer: impl rendering::NodeRenderer<Renderer = Renderer>) -> Self {
         Self {
             renderer: Some(smallbox!(renderer)),
             ..Self::EMPTY
@@ -837,6 +893,51 @@ where
         Self {
             text: None,
             renderer: None,
+            builder: f,
+        }
+    }
+}
+
+impl<'text, Renderer, Builder> NodeContents<'text, Renderer, Builder>
+where
+    Renderer: rendering::Renderer,
+    Builder: GuiBuilder<Renderer>,
+{
+    #[must_use]
+    #[inline]
+    pub fn with_text<'new_text>(
+        self,
+        text: &'new_text str,
+    ) -> NodeContents<'new_text, Renderer, Builder> {
+        NodeContents {
+            text: Some(text),
+            renderer: self.renderer,
+            builder: self.builder,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_renderer(
+        self,
+        renderer: impl rendering::NodeRenderer<Renderer = Renderer>,
+    ) -> NodeContents<'text, Renderer, Builder> {
+        NodeContents {
+            text: self.text,
+            renderer: Some(smallbox!(renderer)),
+            builder: self.builder,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_builder<R, F>(self, f: F) -> NodeContents<'text, Renderer, F>
+    where
+        F: FnOnce(ByorGuiContext<'_, Renderer>) -> R,
+    {
+        NodeContents {
+            text: self.text,
+            renderer: self.renderer,
             builder: f,
         }
     }
@@ -871,6 +972,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
             pressed_buttons,
             clicked_buttons,
             released_buttons,
+            focused: uid.is_some() && (uid == self.data.focused_node),
         }
     }
 
@@ -945,7 +1047,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
     fn update_float_position(&mut self, uid: Uid, position: FloatPosition) {
         match position {
             FloatPosition::Cursor => {
-                let cursor_position = self.data.input_state.mouse_position();
+                let cursor_position = self.data.input_state.cursor_position();
 
                 self.data.float_positions.insert(
                     uid,
@@ -963,7 +1065,7 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
                 {
                     *referenced = true;
                 } else {
-                    let cursor_position = self.data.input_state.mouse_position();
+                    let cursor_position = self.data.input_state.cursor_position();
 
                     self.data.float_positions.insert(
                         uid,
@@ -1047,6 +1149,9 @@ impl<Renderer: rendering::Renderer> ByorGuiContext<'_, Renderer> {
         })
     }
 }
+
+#[cfg(feature = "winit")]
+mod winit_impls;
 
 #[cfg(feature = "vello")]
 mod vello_impls;

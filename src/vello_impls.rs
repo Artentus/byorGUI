@@ -1,5 +1,6 @@
 use crate::rendering::*;
 use crate::*;
+use vello::Scene;
 use vello::kurbo::{self, Affine, Line, PathEl, Rect, Shape, Stroke};
 use vello::peniko::color::{AlphaColor, DynamicColor, Srgb};
 use vello::peniko::{self, Fill};
@@ -175,7 +176,7 @@ impl Shape for Polygon<'_> {
     }
 }
 
-impl Renderer for vello::Scene {
+impl Renderer for Scene {
     type Error = std::convert::Infallible;
 
     fn push_clip_rect(

@@ -373,7 +373,7 @@ impl<Renderer: rendering::Renderer> LeafWidgetData<Renderer> for ScrollBarData {
                         .unwrap_or_default();
                     let thumb_offset = gui
                         .global_input_state()
-                        .mouse_position()
+                        .cursor_position()
                         .along_axis(self.axis)
                         - thumb_pos;
 
@@ -421,7 +421,7 @@ impl<Renderer: rendering::Renderer> LeafWidgetData<Renderer> for ScrollBarData {
 
                     let scroll_position = gui
                         .global_input_state()
-                        .mouse_position()
+                        .cursor_position()
                         .along_axis(self.axis)
                         - scroll_bar_pos
                         - left_button_size

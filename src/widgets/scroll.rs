@@ -525,8 +525,15 @@ impl<Renderer: rendering::Renderer> ContainerWidgetData<Renderer> for ScrollView
                 &parent_style.child_spacing,
                 &parent_style,
                 gui.parent_input_state(),
-            )
-            .unwrap_or(INITIAL_CHILD_SPACING);
+                style.enabled.cascade(
+                    &parent_style.enabled,
+                    &parent_style,
+                    gui.parent_input_state(),
+                    true,
+                    INITIAL_ENABLED,
+                ),
+                INITIAL_CHILD_SPACING,
+            );
 
         let scroll_view_style = style
             .clone()

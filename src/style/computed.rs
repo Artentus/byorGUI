@@ -319,8 +319,9 @@ impl Default for ComputedFont {
     }
 }
 
-#[bitfield(bits = 17)]
+#[bitfield(bits = 18)]
 struct ComputedStylePackedFields {
+    enabled: bool,
     width: ComputedSizing,
     height: ComputedSizing,
     layout_direction: Direction,
@@ -395,6 +396,12 @@ impl ComputedStyle {
 
     // values that don't
     // ------------------------------------------------------
+
+    #[must_use]
+    #[inline]
+    pub(crate) fn enabled(&self) -> bool {
+        self.packed_fields.enabled()
+    }
 
     #[must_use]
     #[inline]
@@ -662,6 +669,7 @@ pub(crate) fn compute_style(
 
     ComputedStyle {
         packed_fields: ComputedStylePackedFields::new()
+            .with_enabled(cascaded_style.enabled)
             .with_width(width)
             .with_height(height)
             .with_layout_direction(cascaded_style.layout_direction)

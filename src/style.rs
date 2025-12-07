@@ -459,7 +459,8 @@ impl Default for PersistentFloatPosition {
     }
 }
 
-pub type PropertyFn<T> = fn(&CascadedStyle, NodeInputState) -> T;
+pub type PropertyFn<T> =
+    fn(parent_style: &CascadedStyle, input_state: NodeInputState, enabled: bool) -> T;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub enum Property<T, const INHERIT_FALLBACK: bool> {
@@ -494,16 +495,18 @@ impl<T: Clone, const INHERIT_FALLBACK: bool> Property<T, INHERIT_FALLBACK> {
         parent_value: &T,
         parent_style: &CascadedStyle,
         input_state: NodeInputState,
-    ) -> Option<T> {
+        enabled: bool,
+        initial_value: T, // Eventually this should become a const generic, if the type system allows it.
+    ) -> T {
         match self {
             Self::Unspecified => match INHERIT_FALLBACK {
-                false => None,
-                true => Some(parent_value.clone()),
+                false => initial_value,
+                true => parent_value.clone(),
             },
-            Self::Initial => None,
-            Self::Inherit => Some(parent_value.clone()),
-            Self::Value(value) => Some(value),
-            Self::Compute(f) => Some(f(parent_style, input_state)),
+            Self::Initial => initial_value,
+            Self::Inherit => parent_value.clone(),
+            Self::Value(value) => value,
+            Self::Compute(f) => f(parent_style, input_state, enabled),
         }
     }
 }
@@ -543,16 +546,19 @@ macro_rules! define_style {
     ($([$fallback_value:ident] $property_name:ident: $property_type:ty { $initial_value:expr },)*) => {
         #[derive(Debug, Clone, StyleBuilder)]
         pub struct Style {
+            pub enabled: Property<bool, true>,
             $(pub $property_name: Property<$property_type, { PropertyFallback::$fallback_value.is_inherit() }>,)*
         }
 
         #[derive(Debug, Clone)]
         pub struct CascadedStyle {
+            pub enabled: bool,
             $(pub $property_name: $property_type,)*
         }
 
         impl Style {
             pub const DEFAULT: Self = Self {
+                enabled: Property::Unspecified,
                 $($property_name: Property::Unspecified,)*
             };
         }
@@ -566,6 +572,7 @@ macro_rules! define_style {
 
         impl CascadedStyle {
             pub const INITIAL: Self = Self {
+                enabled: INITIAL_ENABLED,
                 $($property_name: $initial_value,)*
             };
         }
@@ -574,6 +581,7 @@ macro_rules! define_style {
             #[must_use]
             pub fn or_else(&self, other: &Self) -> Self {
                 Self {
+                    enabled: self.enabled.or_else(&other.enabled),
                     $(
                         $property_name: self.$property_name.clone().or_else(&other.$property_name),
                     )*
@@ -582,12 +590,19 @@ macro_rules! define_style {
 
             #[must_use]
             pub fn cascade_root(&self, screen_size: Vec2<Pixel>, input_state: NodeInputState) -> CascadedStyle {
+                let enabled = match &self.enabled {
+                    Property::Unspecified | Property::Initial | Property::Inherit => INITIAL_ENABLED,
+                    &Property::Value(value) => value,
+                    Property::Compute(f) => f(&CascadedStyle::INITIAL, input_state, true),
+                };
+
                 let mut style = CascadedStyle {
+                    enabled,
                     $(
                         $property_name: match &self.$property_name {
                             Property::Unspecified | Property::Initial | Property::Inherit => $initial_value,
                             Property::Value(value) => value.clone(),
-                            Property::Compute(f) => f(&CascadedStyle::INITIAL, input_state),
+                            Property::Compute(f) => f(&CascadedStyle::INITIAL, input_state, enabled),
                         },
                     )*
                 };
@@ -604,13 +619,17 @@ macro_rules! define_style {
 
             #[must_use]
             pub fn cascade(&self, parent_style: &CascadedStyle, input_state: NodeInputState) -> CascadedStyle {
+                let enabled = self
+                    .enabled
+                    .cascade(&parent_style.enabled, &parent_style, input_state, true, INITIAL_ENABLED);
+
                 CascadedStyle {
+                    enabled,
                     $(
                         $property_name: self
                             .$property_name
                             .clone()
-                            .cascade(&parent_style.$property_name, &parent_style, input_state)
-                            .unwrap_or($initial_value),
+                            .cascade(&parent_style.$property_name, &parent_style, input_state, enabled, $initial_value),
                     )*
                 }
             }
@@ -620,6 +639,7 @@ macro_rules! define_style {
             #[must_use]
             pub fn as_style(&self) -> Style {
                 Style {
+                    enabled: Property::Value(self.enabled),
                     $(
                         $property_name: Property::Value(self.$property_name.clone()),
                     )*
@@ -631,6 +651,7 @@ macro_rules! define_style {
 
 const ROOT_FONT_SIZE: Float<Pixel> = Float::px(16.0);
 
+pub const INITIAL_ENABLED: bool = true;
 pub const INITIAL_SIZE: Sizing = Sizing::FitContent;
 pub const INITIAL_MIN_SIZE: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(0.0));
 pub const INITIAL_MAX_SIZE: AbsoluteMeasurement = AbsoluteMeasurement::Pixel(Float::px(f32::MAX));
@@ -661,6 +682,7 @@ pub const INITIAL_HORIZONTAL_TEXT_ALIGNMENT: HorizontalTextAlignment =
 pub const INITIAL_VERTICAL_TEXT_ALIGNMENT: VerticalTextAlignment = VerticalTextAlignment::Top;
 
 define_style! {
+    // `enabled` property is hardcoded in the macro because of special behavior
     [Initial] width: Sizing { INITIAL_SIZE },
     [Initial] height: Sizing { INITIAL_SIZE },
     [Initial] min_width: AbsoluteMeasurement { INITIAL_MIN_SIZE },

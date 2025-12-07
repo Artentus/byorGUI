@@ -22,7 +22,7 @@ impl Theme {
         &self,
         explicit_style: Option<&Style>,
         custom_classes: &[StyleClass],
-        widget_class: StyleClass,
+        type_class: StyleClass,
     ) -> Style {
         let mut style = explicit_style.cloned().unwrap_or(Style::DEFAULT);
 
@@ -32,7 +32,7 @@ impl Theme {
             }
         }
 
-        if let Some(class_style) = self.styles.get(&widget_class) {
+        if let Some(class_style) = self.styles.get(&type_class) {
             style = style.or_else(class_style);
         }
 
@@ -48,7 +48,7 @@ impl Theme {
         select_property: impl Fn(&Style) -> &Property<T, INHERIT_FALLBACK>,
         explicit_style: Option<&Style>,
         custom_classes: &[StyleClass],
-        widget_class: StyleClass,
+        type_class: StyleClass,
     ) -> Property<T, INHERIT_FALLBACK> {
         let mut property = select_property(explicit_style.unwrap_or(&Style::DEFAULT)).clone();
 
@@ -58,7 +58,7 @@ impl Theme {
             }
         }
 
-        if let Some(class_style) = self.styles.get(&widget_class) {
+        if let Some(class_style) = self.styles.get(&type_class) {
             property = property.or_else(select_property(class_style));
         }
 
